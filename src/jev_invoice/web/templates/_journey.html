@@ -1,0 +1,286 @@
+{% from "_macros.html" import status_tag, action_tag %}
+{% set inv = j.invoice %}
+{% set step_labels = {"pending": ("Waiting", "muted"), "running": ("At this desk", "confirm"), "done": ("Done", "ok"),
+                      "warning": ("Needs attention", "human"), "failed": ("Failed", "block"), "skipped": ("Skipped", "muted")} %}
+{% set desk_stamps = {"received": "Received", "read": "Read", "transcribe": "Transcribed", "extract": "Extracted",
+                      "document_checks": "Checked", "master_data": "Matched", "judgment": "Judged",
+                      "decision": "Decided", "outcome": "Routed"} %}
+{% set decision_stamps = {"auto_approve": "Approve", "route_approval": "Refer", "hold_review": "Hold",
+                          "reject_document": "Reject?", "fraud_review": "Stop"} %}
+{% set tilts = [-3, 2, -1.5, 2.5, -2, 1.5, -2.5, 1, -1.8] %}
+{% set field_labels = [("description", "Description"), ("vendor_name", "Vendor"), ("bill_to_name", "Bill to"), ("vendor_tax_id", "Vendor tax ID"),
+                       ("invoice_number", "Invoice number"), ("invoice_date", "Invoice date"),
+                       ("due_date", "Due date"), ("currency", "Currency"), ("po_reference", "PO reference"),
+                       ("subtotal", "Subtotal"), ("discount", "Discount"), ("shipping", "Shipping"), ("tax", "Tax"),
+                       ("total", "Total"), ("amount_paid", "Already paid"), ("amount_due", "Balance due"),
+                       ("payment_terms_text", "Payment terms"), ("late_fee_terms", "Late-payment terms"),
+                       ("remittance_details", "Remittance")] %}
+{% set decision = inv.decisions[-1] if inv.decisions else none %}
+
+<article class="slip journey" data-finished="{{ 'true' if j.finished else 'false' }}" aria-labelledby="slip-title">
+  <header class="slip__head">
+    <div>
+      <p class="slip__form"><b id="slip-title">Routing slip</b><span>Accounts payable</span>
+        {% if j.finished %}{{ status_tag(inv.status) }}{% else %}<span class="tag tag--confirm">Processing</span>{% endif %}</p>
+      <dl class="slip__fields">
+        <div class="wide vendor"><dt>Vendor</dt><dd>{{ inv.vendor.name if inv.vendor else (inv.vendor_name or "not read yet") }}</dd></div>
+        <div class="wide amount"><dt>Amount</dt><dd>{% if inv.total is not none %}{{ inv.total | money(inv.currency) }}{% endif %}</dd></div>
+        <div><dt>Invoice number</dt><dd>{{ inv.invoice_number or "" }}</dd></div>
+        <div><dt>Invoice date</dt><dd>{{ inv.invoice_date | date }}</dd></div>
+        <div><dt>Purchase order</dt><dd>{{ inv.purchase_order.po_number if inv.purchase_order else (inv.po_reference or "") }}</dd></div>
+        <div><dt>Arrived as</dt><dd>{{ inv.original_filename }}</dd></div>
+      </dl>
+    </div>
+    <div class="slip__date">
+      <span class="stamp stamp--date" style="--tilt: 4deg">Received<b>{{ inv.received_at.strftime("%d %b %Y") }}</b>{{ inv.received_at.strftime("%H:%M") }} UTC</span>
+    </div>
+  </header>
+
+  {% if not j.finished %}
+  <p class="journey__status journey__status--live" role="status" aria-live="polite">
+    <span class="pulse" aria-hidden="true"></span>
+    {% if j.current %}<b>Desk {{ j.current.number }}, {{ j.current.title }}:</b> <span>{{ j.current.row.summary or "Working." }}</span>{% else %}<b>Starting</b>{% endif %}
+  </p>
+  {% else %}
+  <p class="journey__status" role="status">
+    <span>Finished in <b>{{ j.total_ms | duration }}</b>.</span>
+    <span>AI cost <b>${{ "%.5f" | format(j.cost_usd) }}</b>.</span>
+  </p>
+  {% endif %}
+
+  <div class="desks__head" aria-hidden="true"><span>No.</span><span>Desk</span><span>What happened</span><span>Time</span><span>Stamp</span></div>
+  <ol class="desks" aria-label="Desks this invoice passes">
+    {% for s in j.steps %}
+    {% set label, tone = step_labels.get(s.status, (s.status, "muted")) %}
+    {% set d = s.details %}
+    <li class="desk desk--{{ s.status }} track__step track__step--{{ s.status }}" id="step-{{ s.key }}" aria-labelledby="h-{{ s.key }}">
+      <div class="desk__row">
+        <span class="desk__num">{{ s.number }}</span>
+        <div class="desk__name">
+          <h2 id="h-{{ s.key }}">{{ s.title }}</h2>
+          <p class="desk__by">Handled by <b>{{ s.actor }}</b>{% if s.model %}, {{ s.model }}{% endif %}</p>
+        </div>
+        <p class="desk__what">{% if s.key == "decision" and s.status == "done" and d.action %}{{ ACTIONS.get(d.action, (d.action,))[0] }}{% if d.deciding_reasons %}, because of: {% for code in d.deciding_reasons %}{{ reason(code).title }}{{ "; " if not loop.last }}{% endfor %}{% else %}, with no concerns from any check or from Jev{% endif %}.{% elif s.row %}{{ s.row.summary }}{% elif not j.finished %}Waiting for earlier steps.{% else %}Did not run.{% endif %}</p>
+        <span class="desk__time">{% if s.row and s.status not in ("running", "skipped") %}{{ s.row.duration_ms | duration }}{% endif %}</span>
+        <span class="desk__stamp">
+          {% if s.status == "running" %}<span class="stamp stamp--at"><span class="pulse" aria-hidden="true"></span>At this desk</span>
+          {% elif s.status == "pending" %}<span class="stamp stamp--blank"><span class="sr-only">Not stamped yet</span></span>
+          {% elif s.status == "skipped" %}<span class="stamp" style="--tilt: {{ tilts[loop.index0] }}deg">Not needed</span>
+          {% elif s.status == "failed" %}<span class="stamp stamp--block" style="--tilt: {{ tilts[loop.index0] }}deg">Failed</span>
+          {% elif s.status == "warning" %}<span class="stamp stamp--human" style="--tilt: {{ tilts[loop.index0] }}deg">Query</span>
+          {% elif s.key == "decision" and d.action %}{% set a_tone = ACTIONS.get(d.action, ("", "muted"))[1] %}<span class="stamp stamp--{{ a_tone }}" style="--tilt: {{ tilts[loop.index0] }}deg">{{ decision_stamps.get(d.action, "Decided") }}</span>
+          {% else %}<span class="stamp stamp--ok" style="--tilt: {{ tilts[loop.index0] }}deg">{{ desk_stamps.get(s.key, "Done") }}</span>{% endif %}
+          <span class="sr-only">{{ label }}</span>
+        </span>
+      </div>
+
+      {% if s.row and s.status != "running" and d %}
+      <div class="desk__notes">
+      {% if s.key == "received" %}
+        <dl class="fields fields--small">
+          <dt>Size</dt><dd>{{ "{:,}".format(d.size_bytes) if d.size_bytes is number else d.size_bytes }} bytes</dd>
+          <dt>Arrived by</dt><dd>{{ d.source }}{% if d.sender_email %} from {{ d.sender_email }}{% endif %}</dd>
+          <dt>Fingerprint</dt><dd title="{{ d.sha256 }}">SHA-256 {{ (d.sha256 or "")[:16] }}… <span class="muted">spots the same file sent twice</span></dd>
+        </dl>
+
+      {% elif s.key == "read" %}
+        <dl class="fields fields--small">
+          <dt>Kind</dt><dd>{{ d.kind }}{% if d.attachment %} (attachment {{ d.attachment }}){% endif %}</dd>
+          {% if d.pages %}<dt>Pages</dt><dd>{{ d.pages }}</dd>{% endif %}
+          <dt>Text found</dt><dd>{{ d.text_characters }} characters</dd>
+          <dt>Needs transcription</dt><dd>{{ "Yes, " ~ d.page_images ~ " page image(s)" if d.needs_transcription else "No" }}</dd>
+        </dl>
+        {% if d.text_preview %}
+        <details id="d-read-text"><summary>Text found in the file</summary><pre class="code">{{ d.text_preview }}</pre></details>
+        {% endif %}
+
+      {% elif s.key == "transcribe" %}
+        <dl class="fields fields--small">
+          <dt>Pages</dt><dd>{{ d.pages }}</dd>
+          <dt>Cost</dt><dd>${{ d.cost_usd }} <span class="muted">(estimate)</span></dd>
+        </dl>
+        <p class="label">What the vision model read</p>
+        <pre class="code">{{ d.text }}</pre>
+        <details id="d-transcribe-prompt"><summary>Instructions sent to the vision model</summary><pre class="code">{{ d.instructions }}</pre></details>
+
+      {% elif s.key == "extract" %}
+        <dl class="fields fields--small">
+          <dt>Provider</dt><dd>{{ d.provider }}, prompt {{ d.prompt_version }}</dd>
+          <dt>Tokens</dt><dd>{{ d.input_tokens }} in, {{ d.output_tokens }} out</dd>
+          <dt>Time and cost</dt><dd>{{ d.latency_ms | duration }}, ${{ d.cost_usd }}</dd>
+        </dl>
+        <p class="label">What the model read</p>
+        <div class="table-wrap">
+          <table class="ledger ledger--compact readout">
+            <tbody>
+              {% for key, title in field_labels %}
+              <tr><th scope="row">{{ title }}</th>
+                <td>{% if d.fields.get(key) is not none and d.fields.get(key) != "" %}{{ d.fields.get(key) }}{% else %}<span class="muted">not found</span>{% endif %}</td></tr>
+              {% endfor %}
+              <tr><th scope="row">Pays into</th><td>{% if d.bank_account_last4 %}account ending {{ d.bank_account_last4 }}{% else %}<span class="muted">not shown</span>{% endif %}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        {% if d.fields.line_items %}
+        <p class="label">Lines</p>
+        <div class="table-wrap">
+          <table class="ledger ledger--compact">
+            <thead><tr><th scope="col">Description</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th></tr></thead>
+            <tbody>
+              {% for line in d.fields.line_items %}
+              <tr><td>{{ line.description }}</td><td class="num">{{ line.quantity or "" }}</td><td class="num">{{ line.unit_price or "" }}</td><td class="num">{{ line.amount or "" }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        <details id="d-extract-prompt"><summary>Instructions sent to the model</summary><pre class="code">{{ d.instructions }}</pre></details>
+        <details id="d-extract-raw"><summary>The model's answer as JSON, bank account removed</summary><pre class="code">{{ d.fields | tojson(indent=2) }}</pre></details>
+
+      {% elif s.key in ("document_checks", "master_data") %}
+        <ul class="checklist">
+          {% for c in d.checks %}
+          {% set state = "pass" if c.passed is true else ("fail" if c.passed is false else "na") %}
+          <li class="checklist__item checklist__item--{{ state }}">
+            <span class="checklist__mark" aria-hidden="true">{{ "✓" if state == "pass" else ("✗" if state == "fail" else "–") }}</span>
+            <span class="sr-only">{{ {"pass": "Passed", "fail": "Failed", "na": "Not applicable"}[state] }}:</span>
+            <span class="checklist__label">{{ c.label }}</span>
+            {% if c.detail %}<span class="checklist__detail">{{ c.detail }}</span>{% endif %}
+            {% for message in c.findings or [] %}<span class="checklist__detail">{{ message }}</span>{% endfor %}
+          </li>
+          {% endfor %}
+        </ul>
+
+      {% elif s.key == "judgment" %}
+        {% if d.model %}
+        <dl class="fields fields--small">
+          <dt>Questions</dt><dd>set {{ d.question_set_version }}</dd>
+          <dt>Time and cost</dt><dd>{{ d.latency_ms | duration }}{% if d.waited_seconds %}, after waiting {{ d.waited_seconds }} s for the rate limit{% endif %}, ${{ d.cost_usd }}</dd>
+        </dl>
+        {% endif %}
+        {% if j.jev_rows %}
+        <div class="table-wrap">
+          <table class="ledger ledger--compact judgment">
+            <thead><tr><th scope="col">Question</th><th scope="col">Jev's answer</th><th scope="col"><span class="sr-only">Probability</span></th><th scope="col">Verdict</th></tr></thead>
+            <tbody>
+              {% for row in j.jev_rows %}{% set verdict, vtone = row.verdict %}
+              <tr><td>{{ row.label }}</td><td class="typed">{{ row.value }}</td>
+                <td><span class="meter" aria-hidden="true"><span class="meter__fill meter__fill--{{ vtone }}" style="width: {{ (row.bar * 100) | round(0) | int }}%"></span></span></td>
+                <td><span class="tag tag--{{ vtone }}">{{ verdict }}</span></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="muted small">A risk of 30% or less counts as clear and 70% or more as present (50% for instructions aimed at software). Anything in between goes to a person.</p>
+        {% endif %}
+        <details id="d-jev-questions"><summary>Questions sent to Jev</summary>
+          <ul class="plain-list">{% for name, text in d.questions.items() %}<li><span class="typed">{{ name }}</span> <span>{{ text }}</span></li>{% endfor %}</ul>
+        </details>
+
+      {% elif s.key == "decision" %}
+        {% set a_label, a_tone = ACTIONS.get(d.action, (d.action, "muted")) %}
+        <div class="decision decision--{{ a_tone }}">
+          <p class="decision__action"><span class="tag tag--{{ a_tone }}">{{ a_label }}</span></p>
+          <p class="decision__band">{{ BANDS.get(d.band, "") }}</p>
+          {% if d.deciding_reasons %}
+            <p class="label">Decided by</p>
+            <ul class="reasons">
+              {% for code in d.deciding_reasons %}{% set r = reason(code) %}
+              <li class="reasons__item reasons__item--{{ r.tone }}"><p class="reasons__title">{{ r.title }}</p>
+                {% for f in d.findings if f.code == code %}<p class="reasons__finding">{{ f.message }}</p>{% endfor %}
+                <p class="reasons__guidance">{{ r.guidance }}</p></li>
+              {% endfor %}
+            </ul>
+            {% set others = d.all_reasons | reject("in", d.deciding_reasons) | list %}
+            {% if others %}
+            <p class="label">Also recorded</p>
+            <ul class="reasons">
+              {% for code in others %}{% set r = reason(code) %}
+              <li class="reasons__item reasons__item--{{ r.tone }}"><p class="reasons__title">{{ r.title }}</p>
+                {% for f in d.findings if f.code == code %}<p class="reasons__finding">{{ f.message }}</p>{% endfor %}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+          {% else %}
+            <p>No concerns from any check or from Jev, so no person is needed.</p>
+          {% endif %}
+        </div>
+        <p class="muted small">Inputs fingerprint <span class="typed">{{ (d.inputs_sha256 or "")[:12] }}</span>: the same inputs always give the same decision.</p>
+
+      {% elif s.key == "outcome" %}
+        {% if j.open_task %}
+          <p><a class="button button--primary" href="/invoices/{{ inv.id }}#review-title">Decide it now</a></p>
+        {% endif %}
+      {% endif %}
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+
+  {% if j.after %}
+  <section class="after" aria-labelledby="h-after">
+    <h2 id="h-after">After processing</h2>
+    <ol class="timeline">
+      {% for event in j.after %}
+      <li><span class="timeline__when muted">{{ event.occurred_at | ago }}</span>
+        <span class="timeline__what">{{ AUDIT.get(event.action, event.action) }}</span>
+        <span class="timeline__who muted">{{ event.actor }}</span>
+        {% if event.data.get("note") %}<p class="timeline__note">“{{ event.data["note"] }}”</p>{% endif %}</li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if j.time %}
+  <figure class="timebar">
+    <figcaption class="timebar__title">Time at each desk</figcaption>
+    <div class="timebar__bar" aria-hidden="true">
+      {% for seg in j.time %}<span class="timebar__seg seg--{{ seg.kind }}" style="flex-basis: {{ '%.2f' | format(seg.share) }}%" title="{{ seg.label }}: {{ seg.ms | duration }}"></span>{% endfor %}
+    </div>
+    <ul class="timebar__legend">
+      {% for seg in j.time if seg.share >= 1 %}
+      <li><i class="seg--{{ seg.kind }}" aria-hidden="true"></i>{{ seg.label }} {{ seg.ms | duration }}</li>
+      {% endfor %}
+    </ul>
+  </figure>
+  {% endif %}
+
+  {% if j.finished %}
+  {% set action = decision.action if decision else "" %}
+  {% set outcome_stamps = {
+       "approved": ("Approved", "ok"), "exported": ("Exported", "ok"),
+       "rejected": ("Rejected", "block"), "failed": ("Could not read", "block")} %}
+  {% set review_stamps = {
+       "hold_review": ("Hold for review", "human"), "route_approval": ("Refer for budget approval", "confirm"),
+       "reject_document": ("Proposed: reject", "confirm"), "fraud_review": ("Stopped: possible fraud", "block")} %}
+  {% if inv.status == "pending_review" %}{% set big_text, big_tone = review_stamps.get(action, ("Hold for review", "human")) %}
+  {% else %}{% set big_text, big_tone = outcome_stamps.get(inv.status, (STATUSES.get(inv.status, (inv.status,))[0], "muted")) %}{% endif %}
+  <section class="final" aria-labelledby="h-final">
+    <div>
+      <h2 id="h-final">Final output</h2>
+      <dl class="fields">
+        <dt>Status</dt><dd>{{ status_tag(inv.status) }}</dd>
+        <dt>Decision</dt><dd>{% if decision %}{{ action_tag(decision.action) }}{% else %}<span class="muted">none</span>{% endif %}</dd>
+        <dt>Supplier</dt><dd>{{ inv.vendor.name if inv.vendor else (inv.vendor_name or "not read") }}{% if inv.vendor %} <span class="tag tag--ok">in vendor list</span>{% endif %}</dd>
+        <dt>Invoice</dt><dd>{{ inv.invoice_number or "not read" }}</dd>
+        <dt>Dated</dt><dd>{{ (inv.invoice_date | date) or "not read" }}, due {{ (inv.due_date | date) or "not shown" }}</dd>
+        <dt>Purchase order</dt><dd>{{ inv.purchase_order.po_number if inv.purchase_order else (inv.po_reference or "none") }}</dd>
+        <dt>Pays into</dt><dd>{{ "account ending " ~ inv.bank_account_last4 if inv.bank_account_last4 else "not shown" }}</dd>
+        <dt>Total</dt><dd class="strong">{{ inv.total | money(inv.currency) }}</dd>
+      </dl>
+    </div>
+    <div class="final__stamp">
+      <span class="stamp stamp--big stamp--{{ big_tone }}">{{ big_text }}</span>
+      <div class="final__next">
+        {% if inv.status == "pending_review" %}<p>Waiting for a person.</p><a class="button button--primary" href="/invoices/{{ inv.id }}">Review it</a>
+        {% elif inv.status == "approved" %}<p>Approved and ready to export.</p><a class="button button--primary" href="/exports">Go to exports</a>
+        {% elif inv.status == "exported" %}<p>Exported to accounting.</p>
+        {% elif inv.status == "failed" %}<p>{{ inv.error_message }}</p>
+        {% else %}<p>{{ STATUSES.get(inv.status, (inv.status,))[0] }}</p>{% endif %}
+        <p><a href="/invoices/{{ inv.id }}">Open the invoice page</a></p>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+</article>

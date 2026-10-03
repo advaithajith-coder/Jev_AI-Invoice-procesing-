@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "_history.html" import history, person_field %}
+{% from "_macros.html" import status_tag %}
+{% block title %}{{ vendor.name }} | Jev Invoice{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/vendors">Vendors</a><span aria-hidden="true">/</span><span>{{ vendor.name }}</span></nav>
+{% set label, tone = VENDOR_STATUSES.get(vendor.status, (vendor.status, "muted")) %}
+<header class="invoice-head">
+  <div>
+    <h1>{{ vendor.name }}</h1>
+    <p class="invoice-head__meta"><span class="tag tag--{{ tone }}">{{ label }}</span>
+      <span>{{ vendor.default_currency }}, {% if vendor.early_pay_discount_pct %}{{ vendor.early_pay_discount_pct.normalize() }}/{{ vendor.early_pay_days }} {% endif %}net {{ vendor.payment_terms_days }}{% if not vendor.po_required %}, billed without a PO{% endif %}</span>
+      <span>{% if vendor.bank_account_last4 %}pays into account ending {{ vendor.bank_account_last4 }}{% else %}no bank account on file{% endif %}</span></p>
+  </div>
+</header>
+
+{% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+
+<div class="two-col">
+  <section class="panel" aria-labelledby="details-title">
+    <h2 id="details-title">Details</h2>
+    {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/vendors/{{ vendor.id }}">
+      <div class="field"><label for="name">Name</label>
+        <input id="name" name="name" type="text" maxlength="200" value="{{ vendor.name }}" required></div>
+      <div class="field-row">
+        <div class="field"><label for="default_currency">Currency</label>
+          <input id="default_currency" name="default_currency" type="text" maxlength="3" value="{{ vendor.default_currency }}" required></div>
+        <div class="field"><label for="payment_terms_days">Payment terms (days)</label>
+          <input id="payment_terms_days" name="payment_terms_days" type="number" min="0" max="365" value="{{ vendor.payment_terms_days }}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="early_pay_discount_pct">Early-payment discount (%) <span class="muted">optional</span></label>
+          <input id="early_pay_discount_pct" name="early_pay_discount_pct" type="number" min="0.01" max="99.99" step="0.01" value="{{ vendor.early_pay_discount_pct.normalize() if vendor.early_pay_discount_pct else '' }}"></div>
+        <div class="field"><label for="early_pay_days">If paid within (days)</label>
+          <input id="early_pay_days" name="early_pay_days" type="number" min="1" max="365" value="{{ vendor.early_pay_days or '' }}"></div>
+      </div>
+      <div class="field field--check"><label><input name="po_required" type="checkbox" {% if vendor.po_required %}checked{% endif %}>
+        Invoices must quote a purchase order</label></div>
+      <div class="field-row">
+        <div class="field field--check"><label><input name="w9_on_file" type="checkbox" {% if vendor.w9_on_file %}checked{% endif %}> W-9 on file</label></div>
+        <div class="field field--check"><label><input name="is_1099" type="checkbox" {% if vendor.is_1099 %}checked{% endif %}> 1099 vendor</label></div>
+      </div>
+      <div class="field"><label for="default_gl_account_code">Default expense account</label>
+        <select id="default_gl_account_code" name="default_gl_account_code" required>
+          {% for account in gl_accounts %}
+          <option value="{{ account.code }}" {% if vendor.default_gl_account_code == account.code %}selected{% endif %}>{{ account.code }} {{ account.name }}</option>
+          {% endfor %}
+        </select></div>
+      <div class="field-row">
+        <div class="field"><label for="email_domain">Email domain</label>
+          <input id="email_domain" name="email_domain" type="text" value="{{ vendor.email_domain or '' }}"></div>
+        <div class="field"><label for="tax_id">Tax ID (EIN)</label>
+          <input id="tax_id" name="tax_id" type="text" value="{{ vendor.tax_id or '' }}"></div>
+      </div>
+      <div class="field"><label for="status">Status</label>
+        <select id="status" name="status">
+          {% for value in statuses %}
+          <option value="{{ value }}" {% if vendor.status == value %}selected{% endif %}>{{ VENDOR_STATUSES[value][0] }}</option>
+          {% endfor %}
+        </select>
+        <p class="muted small">On hold sends every invoice to a reviewer. Blocked stops payment as possible fraud.</p></div>
+      {{ person_field(person, "person-details") }}
+      <button class="button button--primary" type="submit">Save details</button>
+    </form>
+  </section>
+
+  <section class="panel panel--caution" aria-labelledby="bank-title">
+    <h2 id="bank-title">Change bank account</h2>
+    <p class="small">Requests to change bank details are the most common invoice fraud. Before
+      changing it, call the vendor on a number you already had, not one from the request.</p>
+    {% if bank_error %}<p class="banner banner--error" role="alert">{{ bank_error }}</p>{% endif %}
+    <form method="post" action="/vendors/{{ vendor.id }}/bank-account">
+      <div class="field"><label for="bank_account">New routing and account number</label>
+        <input id="bank_account" name="bank_account" type="text" autocomplete="off" required></div>
+      <div class="field"><label for="bank_note">How was it verified? <span class="required">required</span></label>
+        <textarea id="bank_note" name="note" rows="3" maxlength="2000" required>{{ bank_note or "" }}</textarea></div>
+      {{ person_field(person, "person-bank") }}
+      <button class="button" type="submit">Change bank account</button>
+      <p class="muted small">Only the last 4 characters are stored. The change and your note go into the history.</p>
+    </form>
+  </section>
+</div>
+
+<div class="two-col">
+  <section aria-labelledby="inv-title">
+    <h2 id="inv-title">Recent invoices</h2>
+    {% if invoices %}
+    <div class="table-wrap">
+      <table class="ledger ledger--compact">
+        <thead><tr><th scope="col">Invoice</th><th scope="col">Received</th><th scope="col" class="num">Total</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          {% for invoice in invoices %}
+          <tr>
+            <td><a href="/invoices/{{ invoice.id }}">{{ invoice.invoice_number or invoice.original_filename }}</a></td>
+            <td class="muted">{{ invoice.received_at | ago }}</td>
+            <td class="num">{{ invoice.total | money(invoice.currency) }}</td>
+            <td>{{ status_tag(invoice.status) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="muted">No invoices from this vendor yet.</p>{% endif %}
+  </section>
+  <section aria-labelledby="history-title">
+    <h2 id="history-title">History</h2>
+    {{ history(events) }}
+  </section>
+</div>
+{% endblock %}

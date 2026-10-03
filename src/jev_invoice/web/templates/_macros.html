@@ -1,0 +1,16 @@
+{% macro status_tag(status) -%}
+  {%- set label, tone = STATUSES.get(status, (status, "muted")) -%}
+  <span class="tag tag--{{ tone }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro action_tag(action) -%}
+  {%- set label, tone = ACTIONS.get(action, (action, "muted")) -%}
+  <span class="tag tag--{{ tone }}">{{ label }}</span>
+{%- endmacro %}
+
+{% macro reason_titles(codes) -%}
+  {%- for code in codes -%}
+    {%- set r = reason(code) -%}
+    <span class="reason-inline reason-inline--{{ r.tone }}">{{ r.title }}</span>{% if not loop.last %}<span class="sep" aria-hidden="true">/</span>{% endif %}
+  {%- endfor -%}
+{%- endmacro %}

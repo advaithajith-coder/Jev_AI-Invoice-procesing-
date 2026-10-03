@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "_history.html" import person_field %}
+{% block title %}Exports | Jev Invoice{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1>Export to accounting</h1>
+</div>
+<p class="lede">Approved invoices become an import file for your accounting system. Each invoice
+  is exported once; after that it shows as Exported and old files can be downloaded again.</p>
+
+{% if created %}
+<p class="banner banner--ok" role="status">Export file created with {{ created.invoice_count }} invoice{{ "s" if created.invoice_count != 1 }}.
+  <a href="/exports/{{ created.id }}/download">Download {{ created.filename }}</a></p>
+{% endif %}
+{% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+
+<section aria-labelledby="ready-title">
+  <h2 id="ready-title">Ready to export <span class="count">{{ ready | length }}</span></h2>
+  {% if ready %}
+  <form method="post" action="/exports">
+    <div class="table-wrap">
+      <table class="ledger ledger--compact">
+        <thead><tr>
+          <th scope="col"><span class="sr-only">Include</span></th><th scope="col">Supplier</th><th scope="col">Invoice</th>
+          <th scope="col">Date</th><th scope="col">Due</th><th scope="col">Account</th><th scope="col" class="num">Total</th>
+        </tr></thead>
+        <tbody>
+          {% for invoice, bill in ready %}
+          <tr>
+            <td><input type="checkbox" name="invoice_id" value="{{ invoice.id }}" id="inv-{{ invoice.id }}" checked>
+              <label class="sr-only" for="inv-{{ invoice.id }}">Include {{ bill.invoice_number }}</label></td>
+            <td>{{ bill.supplier }}</td>
+            <td><a href="/invoices/{{ invoice.id }}">{{ bill.invoice_number }}</a></td>
+            <td>{{ bill.invoice_date | date }}</td>
+            <td>{{ bill.due_date | date }}</td>
+            <td>{{ bill.lines[0].account_code }}{% if bill.lines[0].account_code == "9999" %} <span class="tag tag--human">needs coding</span>{% endif %}</td>
+            <td class="num">{{ bill.total | money(bill.currency) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="panel export-form">
+      <div class="field-row">
+        <div class="field"><label for="format">File format</label>
+          <select id="format" name="format">
+            {% for key, f in formats.items() %}<option value="{{ key }}">{{ f.label }}</option>{% endfor %}
+          </select></div>
+        {{ person_field(person, "person-export") }}
+      </div>
+      <button class="button button--primary" type="submit">Create export file</button>
+      <p class="muted small">The selected invoices are marked Exported. Import the file in Xero
+        (Business, Bills to pay, Import) or QuickBooks Online (Settings, Import data, Bills).</p>
+    </div>
+  </form>
+  {% else %}
+  <div class="empty"><p>Nothing to export. Approved invoices appear here.</p></div>
+  {% endif %}
+</section>
+
+{% if not_ready %}
+<section aria-labelledby="blocked-title">
+  <h2 id="blocked-title">Approved but missing details <span class="count">{{ not_ready | length }}</span></h2>
+  <ul class="plain-list">
+    {% for item in not_ready %}
+    <li><a href="/invoices/{{ item.invoice.id }}">{{ item.invoice.vendor_name or item.invoice.original_filename }}</a>
+      <span class="muted">{{ item.reason }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section aria-labelledby="batches-title">
+  <h2 id="batches-title">Past exports</h2>
+  {% if batches %}
+  <div class="table-wrap">
+    <table class="ledger ledger--compact">
+      <thead><tr><th scope="col">Created</th><th scope="col">Format</th><th scope="col">By</th><th scope="col" class="num">Invoices</th><th scope="col">File</th></tr></thead>
+      <tbody>
+        {% for batch in batches %}
+        <tr>
+          <td class="muted">{{ batch.created_at | ago }}</td>
+          <td>{{ formats[batch.format].label if batch.format in formats else batch.format }}</td>
+          <td>{{ batch.created_by }}</td>
+          <td class="num">{{ batch.invoice_count }}</td>
+          <td><a href="/exports/{{ batch.id }}/download">{{ batch.filename }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="muted">No exports yet.</p>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_history.html" import person_field %}
+{% block title %}Purchase orders | Jev Invoice{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1>Purchase orders <span class="count">{{ summaries | length }}</span></h1>
+</div>
+<p class="lede">Invoices are checked against what was ordered and what was delivered. Record
+  deliveries here so matching invoices can be approved without a person.</p>
+
+{% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+
+{% if summaries %}
+<div class="table-wrap">
+  <table class="ledger ledger--stack">
+    <thead>
+      <tr>
+        <th scope="col">PO</th>
+        <th scope="col">Vendor</th>
+        <th scope="col">Status</th>
+        <th scope="col" class="num">Ordered</th>
+        <th scope="col" class="num">Received</th>
+        <th scope="col" class="num">Billed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in summaries %}
+      {% set label, tone = PO_STATUSES.get(s.po.status, (s.po.status, "muted")) %}
+      <tr>
+        <td class="c-main"><a class="rowlink" href="/purchase-orders/{{ s.po.id }}">{{ s.po.po_number }}</a>
+          <span class="muted small">issued {{ s.po.issued_date | date }}</span></td>
+        <td class="c-ref">{{ s.po.vendor.name }}</td>
+        <td class="c-tag"><span class="tag tag--{{ tone }}">{{ label }}</span></td>
+        <td class="c-total num">{{ s.po.total_amount | money(s.po.currency) }}</td>
+        <td class="num">{{ s.received_value | money }}</td>
+        <td class="num">{{ s.invoiced_value | money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty"><p>No purchase orders yet. Create one below or import a CSV.</p></div>
+{% endif %}
+
+<div class="two-col">
+  <section class="panel" aria-labelledby="new-title">
+    <h2 id="new-title">New purchase order</h2>
+    {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+    {% set f = form or {} %}
+    <form method="post" action="/purchase-orders">
+      <div class="field-row">
+        <div class="field"><label for="po_number">PO number</label>
+          <input id="po_number" name="po_number" type="text" maxlength="50" value="{{ f.get('po_number', '') }}" required></div>
+        <div class="field"><label for="issued_date">Issued</label>
+          <input id="issued_date" name="issued_date" type="date" value="{{ f.get('issued_date') or today.isoformat() }}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="vendor_id">Vendor</label>
+          <select id="vendor_id" name="vendor_id" required>
+            <option value="">Choose a vendor</option>
+            {% for vendor in vendors %}
+            <option value="{{ vendor.id }}" {% if f.get('vendor_id') == vendor.id | string %}selected{% endif %}>{{ vendor.name }}</option>
+            {% endfor %}
+          </select></div>
+        <div class="field"><label for="currency">Currency <span class="muted">blank = vendor's</span></label>
+          <input id="currency" name="currency" type="text" maxlength="3" value="{{ f.get('currency', '') }}"></div>
+      </div>
+      <div class="field"><label for="lines">Lines</label>
+        <textarea id="lines" name="lines" rows="5" placeholder="Toner cartridge, black | 12 | 89.50 | 6000&#10;A4 paper, box of 5 reams | 20 | 24.99" required>{{ f.get('lines', '') }}</textarea>
+        <p class="muted small">One line per item: description | quantity | unit price | expense account (optional, defaults to the vendor's).</p></div>
+      {{ person_field(person, "person-po") }}
+      <button class="button button--primary" type="submit">Create purchase order</button>
+    </form>
+  </section>
+
+  <section class="panel" aria-labelledby="import-title">
+    <h2 id="import-title">Import from CSV</h2>
+    <p class="muted small">One row per line; rows with the same po_number become one PO. Columns:
+      po_number, vendor, issued_date, currency, description, quantity, unit_price, gl_account.
+      <a href="/purchase-orders/import-template.csv">Download a template</a>.</p>
+    <p class="muted small">If any row has a problem, nothing is imported.</p>
+    {% if imported is defined and imported is not none %}<p class="banner banner--ok" role="status">Imported {{ imported }} purchase order{{ "s" if imported != 1 }}.</p>{% endif %}
+    {% if import_errors %}
+      <div class="banner banner--error" role="alert"><p>Nothing was imported:</p>
+        <ul>{% for message in import_errors %}<li>{{ message }}</li>{% endfor %}</ul></div>
+    {% endif %}
+    <form method="post" action="/purchase-orders/import" enctype="multipart/form-data">
+      <div class="field"><label for="po-file">CSV file</label>
+        <input id="po-file" name="file" type="file" accept=".csv,text/csv" required></div>
+      {{ person_field(person, "person-po-import") }}
+      <button class="button" type="submit">Import purchase orders</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% macro history(events) -%}
+<ol class="timeline">
+  {% for event in events %}
+  <li>
+    <span class="timeline__when muted" title="{{ event.occurred_at }}">{{ event.occurred_at | ago }}</span>
+    <span class="timeline__what">{{ AUDIT.get(event.action, event.action) }}</span>
+    <span class="timeline__who muted">{{ event.actor }}</span>
+    {% if event.data.get("old_last4") is not none or event.data.get("new_last4") %}
+      <p class="timeline__note">Account ending {{ event.data.get("old_last4") or "none" }} changed to ending {{ event.data.get("new_last4") }}</p>
+    {% endif %}
+    {% if event.data.get("changes") %}
+      <p class="timeline__note">{% for field, (old, new) in event.data["changes"].items() %}{{ field | replace("_", " ") }}: {{ old }} to {{ new }}{% if not loop.last %}; {% endif %}{% endfor %}</p>
+    {% endif %}
+    {% if event.data.get("note") %}<p class="timeline__note">“{{ event.data["note"] }}”</p>{% endif %}
+  </li>
+  {% else %}
+  <li class="muted">No history yet.</li>
+  {% endfor %}
+</ol>
+{%- endmacro %}
+
+{% macro person_field(person, id="person") -%}
+<div class="field">
+  <label for="{{ id }}">Your name</label>
+  <input id="{{ id }}" name="person" type="text" maxlength="100" autocomplete="name" value="{{ person }}" required>
+</div>
+{%- endmacro %}

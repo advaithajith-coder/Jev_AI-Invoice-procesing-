@@ -1,0 +1,90 @@
+[project]
+name = "jev-invoice"
+version = "0.1.0"
+description = "Invoice processing: LLM extraction, deterministic checks, and TypeSafe Jev typed decisions"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "alembic>=1.14",
+  "arq>=0.26",
+  "redis>=5.2",
+  "structlog>=24.4",
+  "httpx>=0.28",
+  "pdfplumber>=0.11",
+  "groq>=1.7",
+  "typesafe-sdk>=0.7.2",
+  "aiosqlite>=0.20",
+  "python-multipart>=0.0.20",
+  "python-dotenv>=1.0",
+  "jinja2>=3.1",
+  "pillow>=11",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.8",
+  "mypy>=1.13",
+  "poethepoet>=0.31",
+  "httpx2>=2.13.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jev_invoice"]
+
+# ── Tasks: `uv run poe <task>` (works on Windows, macOS, Linux, CI) ──────────
+[tool.poe.tasks]
+fmt = { shell = "ruff format . && ruff check --fix ." }
+lint = { shell = "ruff format --check . && ruff check ." }
+typecheck = "mypy"
+test = "pytest"
+check = ["lint", "typecheck", "test"]
+dev = "python -m uvicorn jev_invoice.main:app --reload --port 8000"
+worker = "python -m arq jev_invoice.workers.settings.WorkerSettings"
+migrate = "python -m alembic upgrade head"
+setup = ["migrate", "seed"]
+seed = "python -m jev_invoice.db.seed"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "RUF", "SIM", "PT", "DTZ"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S311", "PT018", "E501"]
+"migrations/**" = ["E501"]
+"src/jev_invoice/db/seed_data.py" = ["E501"]  # one row per line reads like a table
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["arq.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers"
+markers = [
+  "live: calls external APIs (TypeSafe, Groq); needs real keys",
+  "db: needs a running PostgreSQL",
+]

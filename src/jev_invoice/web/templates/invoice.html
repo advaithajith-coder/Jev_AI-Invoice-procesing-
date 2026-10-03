@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_tag, action_tag %}
+{% set vendor_label = invoice.vendor.name if invoice.vendor else (invoice.vendor_name or invoice.original_filename) %}
+{% block title %}{{ vendor_label }} {{ invoice.invoice_number or "" }} | Jev Invoice{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="{{ '/review' if open_task else '/' }}">{{ "Review queue" if open_task else "Inbox" }}</a>
+  <span aria-hidden="true">/</span>
+  <span>{{ invoice.invoice_number or invoice.original_filename }}</span>
+</nav>
+
+<header class="invoice-head">
+  <div>
+    <h1>{{ vendor_label }}</h1>
+    <p class="invoice-head__meta">
+      <span>{{ invoice.invoice_number or "No invoice number read" }}</span>
+      {% if invoice.invoice_date %}<span>{{ invoice.invoice_date | date }}</span>{% endif %}
+      {{ status_tag(invoice.status) }}
+    </p>
+  </div>
+  <p class="invoice-head__total">{% if invoice.total is not none %}<small>{{ invoice.currency }}</small>{{ invoice.total | money }}{% endif %}</p>
+</header>
+
+<p class="journey-cta"><a href="/invoices/{{ invoice.id }}/journey">See the journey: every step, model, check, time and cost</a></p>
+{% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+
+<div class="split">
+  <section class="document" aria-labelledby="doc-title">
+    <div class="document__head">
+      <h2 id="doc-title">Original</h2>
+      <a href="/invoices/{{ invoice.id }}/document" target="_blank" rel="noopener">Open in new tab</a>
+    </div>
+    {% if is_pdf %}
+      <iframe class="document__frame" src="/invoices/{{ invoice.id }}/document" title="Original invoice: {{ invoice.original_filename }}"></iframe>
+    {% elif is_image %}
+      <img class="document__image" src="/invoices/{{ invoice.id }}/document" alt="Original invoice image: {{ invoice.original_filename }}">
+    {% elif document_text %}
+      <pre class="document__text">{{ document_text }}</pre>
+    {% else %}
+      <p class="muted">The original could not be displayed.</p>
+    {% endif %}
+    <p class="muted small">{{ invoice.original_filename }}, received {{ invoice.received_at | ago }}{% if invoice.source == "email" and invoice.sender_email %} from {{ invoice.sender_email }}{% endif %}</p>
+
+    {% if invoice.transcribed_text %}
+    <section class="transcription" aria-labelledby="transcription-title">
+      <h2 id="transcription-title">What the vision model read</h2>
+      <p class="muted small">This was a scan or photo, so {{ invoice.transcription_model }} transcribed it before
+        anything else ran. Compare it with the image: a misread digit here becomes a wrong field below.</p>
+      <pre class="document__text">{{ invoice.transcribed_text }}</pre>
+    </section>
+    {% endif %}
+  </section>
+
+  <div class="details">
+    {% if decision %}
+    <section class="decision decision--{{ ACTIONS[decision.action][1] }}" aria-labelledby="decision-title">
+      <h2 id="decision-title">Decision</h2>
+      <p class="decision__action">{{ action_tag(decision.action) }}</p>
+      <p class="decision__band">{{ BANDS[decision.band] }}</p>
+
+      {% if decision.reason_codes %}
+      <ul class="reasons">
+        {% for code in decision.reason_codes %}
+        {% set r = reason(code) %}
+        <li class="reasons__item reasons__item--{{ r.tone }}">
+          <p class="reasons__title">{{ r.title }}</p>
+          {% for finding in decision.findings if finding.code == code %}
+            <p class="reasons__finding">{{ finding.message }}</p>
+          {% endfor %}
+          {% if r.guidance %}<p class="reasons__guidance">{{ r.guidance }}</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+    {% elif invoice.status == "failed" %}
+    <section class="decision decision--block" aria-labelledby="decision-title">
+      <h2 id="decision-title">Could not be read</h2>
+      <p>{{ invoice.error_message }}</p>
+      <p class="muted">Nothing was decided. Enter this invoice by hand or re-upload a clearer copy.</p>
+    </section>
+    {% endif %}
+
+    {% if open_task %}
+    <section class="review" aria-labelledby="review-title">
+      <h2 id="review-title">Your decision</h2>
+      {% if review_warnings %}
+      <ul class="review__warnings" aria-label="Controls this demo does not enforce">
+        {% for warning in review_warnings %}<li>{{ warning }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+      <form method="post" action="/invoices/{{ invoice.id }}/review" class="review__form">
+        <input type="hidden" name="task_id" value="{{ open_task.id }}">
+        <div class="field">
+          <label for="reviewer">Your name</label>
+          <input id="reviewer" name="reviewer" type="text" maxlength="100" autocomplete="name" value="{{ reviewer }}" required>
+        </div>
+        <div class="field">
+          <label for="note">
+            Note
+            {% if decision and decision.band == "block" %}<span class="required">required to approve: how did you verify it?</span>{% else %}<span class="muted">optional</span>{% endif %}
+          </label>
+          <textarea id="note" name="note" rows="3" maxlength="2000">{{ note or "" }}</textarea>
+        </div>
+        <div class="review__actions">
+          {% if proposes_reject %}
+            <button class="button button--primary" type="submit" name="verdict" value="reject">Reject</button>
+            <button class="button" type="submit" name="verdict" value="approve">Approve anyway</button>
+          {% elif decision and decision.band == "block" %}
+            <button class="button button--danger" type="submit" name="verdict" value="reject">Reject</button>
+            <button class="button" type="submit" name="verdict" value="approve">Approve after verifying</button>
+          {% else %}
+            <button class="button button--primary" type="submit" name="verdict" value="approve">Approve</button>
+            <button class="button" type="submit" name="verdict" value="reject">Reject</button>
+          {% endif %}
+        </div>
+        <p class="muted small">Your name, decision and note go into the audit trail and cannot be edited.</p>
+      </form>
+    </section>
+    {% endif %}
+
+    {% if terms %}
+    <section class="payment" aria-labelledby="payment-title">
+      <h2 id="payment-title">Payment</h2>
+      <dl class="fields">
+        <dt>Amount to pay</dt>
+        <dd class="strong">{{ (invoice.amount_due if invoice.amount_due is not none else invoice.total) | money(invoice.currency) }}{% if invoice.amount_paid %} <span class="muted">after {{ invoice.amount_paid | money(invoice.currency) }} already paid</span>{% endif %}</dd>
+        <dt>Pay by</dt>
+        <dd>{{ terms.pay_by | date }} <span class="muted">(agreed terms: {{ terms.label }})</span></dd>
+        {% if terms.asks_earlier %}
+        <dt>Invoice asks for</dt>
+        <dd>{{ terms.printed_due | date }} <span class="tag tag--human">earlier than the agreed terms</span></dd>
+        {% endif %}
+      </dl>
+      {% if terms.discount_by %}
+      {% set open = terms.discount_by >= today %}
+      <p class="discount{{ '' if open else ' discount--missed' }}">
+        <b>{{ terms.discount_pct.normalize() }}% early-payment discount</b>
+        {%- if terms.discount_amount is not none %} ({{ terms.discount_amount | money(invoice.currency) }}){% endif %}
+        {% if open %}if paid by {{ terms.discount_by | date }}.{% else %}missed: it ended {{ terms.discount_by | date }}.{% endif %}
+      </p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <section aria-labelledby="fields-title">
+      <h2 id="fields-title">What was read</h2>
+      {% set info = invoice.additional_info or {} %}
+      <dl class="fields">
+        {% if invoice.description %}
+        <dt>Description</dt>
+        <dd>{{ invoice.description }}{% if info.get("description_printed") is false %} <span class="muted">(summary of the lines; none printed)</span>{% endif %}</dd>
+        {% endif %}
+        <dt>Vendor</dt>
+        <dd>{{ invoice.vendor_name or "not read" }}
+          {% if invoice.vendor %}<span class="tag tag--ok">in vendor list</span>{% elif invoice.vendor_name %}<span class="tag tag--human">not in vendor list</span>{% endif %}</dd>
+        <dt>Bill to</dt>
+        <dd>{{ invoice.bill_to_name or "not shown" }}</dd>
+        {% if invoice.vendor_tax_id %}<dt>Vendor tax ID</dt><dd>{{ invoice.vendor_tax_id }}</dd>{% endif %}
+        <dt>Invoice number</dt><dd>{{ invoice.invoice_number or "not read" }}</dd>
+        <dt>Invoice date</dt><dd>{{ (invoice.invoice_date | date) or "not read" }}</dd>
+        <dt>Due date</dt><dd>{{ (invoice.due_date | date) or "not shown" }}</dd>
+        <dt>Purchase order</dt>
+        <dd>{% if invoice.purchase_order %}{{ invoice.purchase_order.po_number }} <span class="tag tag--ok">matched</span>{% elif invoice.po_reference %}{{ invoice.po_reference }} <span class="tag tag--human">not matched</span>{% else %}none quoted{% endif %}</dd>
+        <dt>Pays into</dt>
+        <dd>{% if invoice.bank_account_last4 %}account ending <span>{{ invoice.bank_account_last4 }}</span>{% else %}no account shown{% endif %}</dd>
+        <dt>Subtotal</dt><dd>{{ (invoice.subtotal | money(invoice.currency)) or "not shown" }}</dd>
+        {% if invoice.discount %}<dt>Discount</dt><dd>-{{ invoice.discount | money(invoice.currency) }}</dd>{% endif %}
+        {% if invoice.shipping %}<dt>Shipping</dt><dd>{{ invoice.shipping | money(invoice.currency) }}</dd>{% endif %}
+        <dt>Tax</dt><dd>{{ (invoice.tax_total | money(invoice.currency)) or "not shown" }}</dd>
+        <dt>Total</dt><dd class="strong">{{ invoice.total | money(invoice.currency) }}</dd>
+        {% if invoice.amount_paid %}<dt>Already paid</dt><dd>-{{ invoice.amount_paid | money(invoice.currency) }}</dd>{% endif %}
+        {% if invoice.amount_due is not none and invoice.amount_due != invoice.total %}<dt>Balance due</dt><dd class="strong">{{ invoice.amount_due | money(invoice.currency) }}</dd>{% endif %}
+      </dl>
+
+      {% if invoice.lines %}
+      <div class="table-wrap">
+        <table class="ledger ledger--compact">
+          <caption class="sr-only">Invoice lines</caption>
+          <thead><tr><th scope="col">Line</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th></tr></thead>
+          <tbody>
+            {% for line in invoice.lines %}
+            <tr>
+              <td>{{ line.description }}</td>
+              <td class="num">{{ line.quantity | qty }}</td>
+              <td class="num">{{ line.unit_price | money }}</td>
+              <td class="num">{{ line.amount | money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </section>
+
+    {% set info = invoice.additional_info or {} %}
+    {% if info.get("payment_terms") or info.get("late_fee_terms") or info.get("remittance") or info.get("notes") or info.get("other_details") %}
+    <section class="extra-info" aria-labelledby="info-title">
+      <h2 id="info-title">Additional information</h2>
+      <p class="muted small">As printed on the invoice. Account numbers keep only their last 4 digits.</p>
+      <dl class="fields">
+        {% if info.get("payment_terms") %}<dt>Payment terms</dt><dd>{{ info["payment_terms"] }}</dd>{% endif %}
+        {% if info.get("late_fee_terms") %}<dt>Late-payment terms</dt><dd>{{ info["late_fee_terms"] }}</dd>{% endif %}
+        {% if info.get("remittance") %}<dt>Remittance</dt><dd>{{ info["remittance"] }}</dd>{% endif %}
+        {% if info.get("notes") %}<dt>Notes</dt>
+        <dd>{% for note in info["notes"] %}<p class="extra-info__note">{{ note }}</p>{% endfor %}</dd>{% endif %}
+        {% for detail in info.get("other_details") or [] %}<dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd>{% endfor %}
+      </dl>
+    </section>
+    {% endif %}
+
+    {% if jev_rows %}
+    <section aria-labelledby="jev-title">
+      <h2 id="jev-title">Jev's judgment</h2>
+      <p class="muted small">
+        Calibrated answers from TypeSafe Jev ({{ decision.jev_model }}). The policy treats a risk
+        of 30% or less as clear and 70% or more as present (50% for instructions aimed at software).
+        In between, a person decides.
+      </p>
+      <table class="ledger ledger--compact judgment">
+        <thead><tr><th scope="col">Question</th><th scope="col">Answer</th><th scope="col"><span class="sr-only">Probability</span></th><th scope="col">Verdict</th></tr></thead>
+        <tbody>
+          {% for row in jev_rows %}
+          {% set verdict, tone = row.verdict %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td>{{ row.value }}</td>
+            <td><span class="meter" aria-hidden="true"><span class="meter__fill meter__fill--{{ tone }}" style="width: {{ (row.bar * 100) | round(0) | int }}%"></span></span></td>
+            <td><span class="tag tag--{{ tone }}">{{ verdict }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% elif decision and decision.jev_status != "ok" %}
+    <section aria-labelledby="jev-title">
+      <h2 id="jev-title">Jev's judgment</h2>
+      <p class="muted">No answers: {{ reason(("JEV_NOT_CONFIGURED" if decision.jev_status == "not_configured" else "JEV_UNAVAILABLE")).guidance }}</p>
+    </section>
+    {% endif %}
+
+    <section aria-labelledby="history-title">
+      <h2 id="history-title">History</h2>
+      <ol class="timeline">
+        {% for event in events %}
+        <li>
+          <span class="timeline__when muted" title="{{ event.occurred_at }}">{{ event.occurred_at | ago }}</span>
+          <span class="timeline__what">{{ AUDIT.get(event.action, event.action) }}</span>
+          <span class="timeline__who muted">{{ event.actor }}</span>
+          {% if event.data.get("note") %}<p class="timeline__note">“{{ event.data["note"] }}”</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+
+    {% if decision %}
+    <details class="provenance">
+      <summary>How this was decided</summary>
+      <dl class="fields fields--small">
+        {% if invoice.transcription_model %}<dt>Transcribed by</dt><dd>Groq {{ invoice.transcription_model }}, ${{ "%.5f" | format(invoice.transcription_cost_usd or 0) }} (estimate)</dd>{% endif %}
+        {% if invoice.extraction_model %}<dt>Read by</dt><dd>{{ invoice.extraction_provider }} {{ invoice.extraction_model }}, prompt {{ invoice.extraction_prompt_version }}, ${{ "%.5f" | format(invoice.extraction_cost_usd or 0) }}</dd>{% endif %}
+        <dt>Judged by</dt><dd>{{ decision.jev_model or "no model (" ~ decision.jev_status ~ ")" }}, questions {{ decision.question_set_version }}</dd>
+        <dt>Policy</dt><dd>{{ decision.policy_version }}</dd>
+        <dt>Inputs hash</dt><dd class="small">{{ decision.inputs_sha256[:16] }}</dd>
+      </dl>
+    </details>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_history.html" import history, person_field %}
+{% from "_macros.html" import status_tag %}
+{% block title %}{{ po.po_number }} | Jev Invoice{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/purchase-orders">Purchase orders</a><span aria-hidden="true">/</span><span>{{ po.po_number }}</span></nav>
+{% set label, tone = PO_STATUSES.get(po.status, (po.status, "muted")) %}
+<header class="invoice-head">
+  <div>
+    <h1>{{ po.po_number }}</h1>
+    <p class="invoice-head__meta"><a href="/vendors/{{ po.vendor_id }}">{{ po.vendor.name }}</a>
+      <span>issued {{ po.issued_date | date }}</span>
+      <span class="tag tag--{{ tone }}">{{ label }}</span></p>
+  </div>
+  <p class="invoice-head__total">{{ po.total_amount | money(po.currency) }}</p>
+</header>
+
+{% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+
+<dl class="figures">
+  <div><dt>Ordered</dt><dd>{{ po.total_amount | money(po.currency) }}</dd></div>
+  <div><dt>Received so far</dt><dd>{{ s.received_value | money(po.currency) }}</dd></div>
+  <div><dt>Billed so far</dt><dd>{{ s.invoiced_value | money(po.currency) }}</dd>
+    {% if s.invoiced_value > s.received_value %}<span class="tag tag--human">billed more than received</span>{% endif %}</div>
+</dl>
+
+<section aria-labelledby="lines-title">
+  <h2 id="lines-title">Lines and deliveries</h2>
+  <form method="post" action="/purchase-orders/{{ po.id }}/receipts">
+    <div class="table-wrap">
+      <table class="ledger ledger--compact">
+        <thead><tr>
+          <th scope="col">Line</th><th scope="col" class="num">Ordered</th><th scope="col" class="num">Unit price</th>
+          <th scope="col">Account</th><th scope="col" class="num">Received</th>
+          {% if closable %}<th scope="col" class="num">Receive now</th>{% endif %}
+        </tr></thead>
+        <tbody>
+          {% for item in s.lines %}
+          <tr>
+            <td>{{ item.line.description }}</td>
+            <td class="num">{{ item.line.quantity | qty }}</td>
+            <td class="num">{{ item.line.unit_price | money }}</td>
+            <td>{{ item.line.gl_account_code or "" }}</td>
+            <td class="num">{{ item.received | qty }}{% if item.outstanding == 0 %} <span class="tag tag--ok">all</span>{% endif %}</td>
+            {% if closable %}
+            <td class="num">{% if item.outstanding > 0 %}
+              <label class="sr-only" for="qty_{{ item.line.id }}">Receive now, {{ item.line.description }}</label>
+              <input class="qty-input" id="qty_{{ item.line.id }}" name="qty_{{ item.line.id }}" type="number" min="0" max="{{ item.outstanding | qty }}" step="any" placeholder="0">
+              {% endif %}</td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if closable and s.lines | selectattr("outstanding") | list %}
+    <div class="panel delivery">
+      <div class="field-row">
+        <div class="field"><label for="received_date">Delivered on</label>
+          <input id="received_date" name="received_date" type="date" value="{{ today.isoformat() }}"></div>
+        {{ person_field(person, "person-delivery") }}
+      </div>
+      <button class="button button--primary" type="submit">Record delivery</button>
+    </div>
+    {% endif %}
+  </form>
+</section>
+
+<div class="two-col">
+  <section aria-labelledby="inv-title">
+    <h2 id="inv-title">Invoices against this PO</h2>
+    {% if invoices %}
+    <div class="table-wrap">
+      <table class="ledger ledger--compact">
+        <thead><tr><th scope="col">Invoice</th><th scope="col" class="num">Total</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          {% for invoice in invoices %}
+          <tr>
+            <td><a href="/invoices/{{ invoice.id }}">{{ invoice.invoice_number or invoice.original_filename }}</a></td>
+            <td class="num">{{ invoice.total | money(invoice.currency) }}</td>
+            <td>{{ status_tag(invoice.status) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="muted">No invoices quote this PO yet.</p>{% endif %}
+
+    {% if closable %}
+    <form method="post" action="/purchase-orders/{{ po.id }}/status" class="panel close-po">
+      <h2>Close or cancel</h2>
+      <p class="muted small">Closed or cancelled POs reject further invoices. Cancel only if nothing was delivered.</p>
+      <div class="field"><label for="po-note">Note <span class="muted">optional</span></label>
+        <input id="po-note" name="note" type="text" maxlength="500"></div>
+      {{ person_field(person, "person-close") }}
+      <div class="review__actions">
+        <button class="button" type="submit" name="status" value="closed">Close PO</button>
+        <button class="button" type="submit" name="status" value="cancelled">Cancel PO</button>
+      </div>
+    </form>
+    {% endif %}
+  </section>
+  <section aria-labelledby="history-title">
+    <h2 id="history-title">History</h2>
+    {{ history(events) }}
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_tag, action_tag %}
+{% block title %}Inbox | Jev Invoice{% endblock %}
+{% block content %}
+<div class="intake">
+  <section class="upload" aria-labelledby="upload-title">
+    <h1 id="upload-title">Process an invoice</h1>
+    <p class="lede">
+      Upload a PDF, a scan or photo, a text file, or an email with the invoice attached.
+      You will watch it go through every step, and see who decided what and why.
+    </p>
+
+    {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+
+    <form class="dropzone" action="/upload" method="post" enctype="multipart/form-data" data-upload>
+      <label class="dropzone__label" for="file">
+        <span class="dropzone__title">Drop the file here, or choose one</span>
+        <span class="dropzone__hint">PDF, PNG, JPG, WEBP, TIFF, TXT or EML, up to 10 MB</span>
+        <span class="dropzone__file" data-file-name aria-live="polite"></span>
+      </label>
+      <input id="file" name="file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.txt,.eml,application/pdf,image/png,image/jpeg,image/webp,image/tiff,text/plain,message/rfc822" required>
+      <button class="button button--primary" type="submit">Process invoice</button>
+      <div class="progress" data-progress hidden role="status">
+        <div class="progress__bar"></div>
+        <p>Uploading. Next you will see each step as it happens.</p>
+      </div>
+    </form>
+  </section>
+
+  <aside aria-labelledby="route-title">
+    <p class="route__title" id="route-title">The route every invoice takes</p>
+    <ol class="route">
+      <li><span>Scans and photos are transcribed by a <b>vision model</b></span></li>
+      <li><span>A <b>language model</b> reads the fields and lines</span></li>
+      <li><span><b>Code</b> checks the sums, dates, vendor, bank account and PO</span></li>
+      <li><span><b>Jev</b> judges fraud, payability and risk with probabilities</span></li>
+      <li><span>A fixed <b>policy</b> approves it, or sends it to a person with reasons</span></li>
+    </ol>
+  </aside>
+</div>
+
+<section aria-labelledby="list-title">
+  <div class="section-head">
+    <h2 id="list-title">Invoices</h2>
+  </div>
+  {% if total %}
+  <nav class="tally" aria-label="Filter by status">
+    <a href="/" {% if not status_filter %}aria-current="true"{% endif %}><b>{{ total }}</b><span>All</span></a>
+    {% for status, (label, tone) in STATUSES.items() if counts.get(status) %}
+      <a href="/?status={{ status }}" {% if status_filter == status %}aria-current="true"{% endif %}><b>{{ counts[status] }}</b><span>{{ label }}</span></a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
+  {% if invoices %}
+  <div class="table-wrap">
+    <table class="ledger ledger--stack">
+      <thead>
+        <tr>
+          <th scope="col">Vendor</th>
+          <th scope="col">Invoice</th>
+          <th scope="col">Received</th>
+          <th scope="col" class="num">Total</th>
+          <th scope="col">Status</th>
+          <th scope="col">Decision</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for invoice in invoices %}
+        {% set decision = invoice.decisions[-1] if invoice.decisions else none %}
+        <tr>
+          <td class="c-main">
+            <a class="rowlink" href="/invoices/{{ invoice.id }}">{{ invoice.vendor.name if invoice.vendor else (invoice.vendor_name or invoice.original_filename) }}</a>
+            {% if invoice.vendor_name and not invoice.vendor %}<span class="sub">not in vendor list</span>{% endif %}
+            {% if invoice.description %}<span class="sub">{{ invoice.description }}</span>{% endif %}
+          </td>
+          <td class="c-ref">{{ invoice.invoice_number or "" }}</td>
+          <td class="c-when muted" title="{{ invoice.received_at }}">{{ invoice.received_at | ago }}</td>
+          <td class="c-total num">{{ invoice.total | money(invoice.currency) }}</td>
+          <td class="c-tag">{% if invoice.status in ("received", "extracted") %}<a class="tag tag--confirm" href="/invoices/{{ invoice.id }}/journey" data-processing>Processing…</a>{% else %}{{ status_tag(invoice.status) }}{% endif %}</td>
+          <td class="c-tag">{% if decision %}{{ action_tag(decision.action) }}{% else %}<span class="muted">{{ invoice.error_message or "" }}</span>{% endif %}
+            <a class="journey-link" href="/invoices/{{ invoice.id }}/journey">Journey</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    {% if status_filter %}
+      <p>No invoices with this status. <a href="/">Show all invoices</a>.</p>
+    {% else %}
+      <p>No invoices yet. Upload one above to watch it go through.</p>
+      <p class="muted small">The demo data knows these vendors: Acme Supplies Inc, Halcyon Computing LLC,
+      Brightline Cloud Services Inc, Meridian Legal LLP, Pixelforge Marketing LLC, Northline Freight Inc,
+      Clearpath IT Support LLC, Stratus Telecom Inc, Old Mill Stationers (on hold) and Vortex Trading LLC (blocked).</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

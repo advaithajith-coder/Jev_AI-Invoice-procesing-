@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_macros.html" import action_tag, reason_titles %}
+{% block title %}Review queue | Jev Invoice{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1>Waiting for review <span class="count">{{ tasks | length }}</span></h1>
+</div>
+<p class="lede">Oldest first. Each invoice shows what the system proposes and why it needs a person.</p>
+
+{% if tasks %}
+<div class="table-wrap">
+  <table class="ledger ledger--stack">
+    <thead>
+      <tr>
+        <th scope="col">Waiting</th>
+        <th scope="col">Vendor and invoice</th>
+        <th scope="col" class="num">Total</th>
+        <th scope="col">Proposed</th>
+        <th scope="col">Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for task in tasks %}
+      {% set invoice = task.invoice %}
+      <tr>
+        <td class="c-when muted">{{ task.created_at | ago }}</td>
+        <td class="c-main">
+          <a class="rowlink" href="/invoices/{{ invoice.id }}">{{ invoice.vendor.name if invoice.vendor else (invoice.vendor_name or invoice.original_filename) }}</a>
+          <span class="sub">{{ invoice.invoice_number or "" }}</span>
+        </td>
+        <td class="c-total num">{{ invoice.total | money(invoice.currency) }}</td>
+        <td class="c-tag">{{ action_tag(task.decision.action) }}</td>
+        <td class="c-wide reasons-cell">{{ reason_titles(task.decision.reason_codes) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">
+  <p>Nothing to review. Invoices that need a person will appear here with their reasons.</p>
+</div>
+{% endif %}
+{% endblock %}

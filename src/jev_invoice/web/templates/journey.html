@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Journey of {{ j.invoice.vendor_name or j.invoice.original_filename }} | Jev Invoice{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/">Inbox</a><span aria-hidden="true">/</span>
+  <a href="/invoices/{{ j.invoice.id }}">{{ j.invoice.invoice_number or j.invoice.original_filename }}</a><span aria-hidden="true">/</span>
+  <span>Journey</span>
+</nav>
+{% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+<div data-journey data-live-url="/invoices/{{ j.invoice.id }}/journey/live">
+  {% include "_journey.html" %}
+</div>
+<script src="{{ url_for('static', path='journey.js') }}" defer></script>
+{% endblock %}

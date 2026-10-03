@@ -1,0 +1,446 @@
+"""Review screens: inbox, review queue, and the invoice page where a person decides.
+
+Plain HTML forms that post and redirect (no client framework). Jinja2 autoescaping
+is on, so text from invoices (untrusted) is always rendered as text, never markup.
+"""
+
+import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+from typing import Annotated, Any
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.templating import Jinja2Templates
+from sqlalchemy import func, select
+
+from jev_invoice.api.dependencies import SessionDep, get_app_settings, get_pipeline
+from jev_invoice.api.routes.invoices import PayloadTooLargeError
+from jev_invoice.config import Settings
+from jev_invoice.core.errors import AppError, NotFoundError
+from jev_invoice.db.models import AuditEvent, Decision, Invoice, ReviewTask
+from jev_invoice.decision.policy import DEFAULT_THRESHOLDS
+from jev_invoice.domain.enums import ActionBand, DecisionAction, InvoiceStatus, ReviewStatus
+from jev_invoice.domain.payment import PaymentTerms, payment_terms
+from jev_invoice.ingest.parsing import parse_document
+from jev_invoice.ingest.storage import LocalFileStorage
+from jev_invoice.pipeline.review import ReviewService
+from jev_invoice.pipeline.service import InvoicePipeline, invoice_query
+from jev_invoice.web import labels
+
+router = APIRouter(include_in_schema=False)
+templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+REVIEWER_COOKIE = "reviewer"
+BROWSER_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}  # TIFF does not display
+
+
+class FormError(AppError):
+    status_code = 400
+    code = "invalid_form"
+
+
+NOTICES = {
+    "uploaded": "Invoice processed.",
+    "duplicate": "This exact file was uploaded before. Showing the existing invoice.",
+    "approved": "Approved and recorded.",
+    "rejected": "Rejected and recorded.",
+}
+
+
+# ── Formatting helpers available in every template ───────────────────────────
+
+
+def money(value: Decimal | None, currency: str | None = None) -> str:
+    if value is None:
+        return ""
+    amount = f"{value:,.2f}"
+    return f"{currency} {amount}" if currency else amount
+
+
+def nice_date(value: Any) -> str:
+    return value.strftime("%d %b %Y").lstrip("0") if value else ""
+
+
+def ago(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    moment = value if value.tzinfo else value.replace(tzinfo=UTC)  # SQLite returns naive UTC
+    seconds = int((datetime.now(UTC) - moment).total_seconds())
+    if seconds < 60:
+        return "just now"
+    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if seconds >= size:
+            count = seconds // size
+            return f"{count} {unit}{'s' if count > 1 else ''} ago"
+    return "just now"
+
+
+def percent(value: float | None) -> str:
+    return "" if value is None else f"{value * 100:.0f}%"
+
+
+def quantity(value: Decimal | None) -> str:
+    """12.0000 -> '12', 2.5000 -> '2.5' (without normalize()'s 1E+1 surprises)."""
+    if value is None:
+        return ""
+    text = f"{value:f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def duration(ms: object) -> str:
+    """320 -> '320 ms', 1734 -> '1.7 s', 75000 -> '1 min 15 s'. Anything else -> ''."""
+    if not isinstance(ms, int | float) or isinstance(ms, bool):
+        return ""
+    if ms < 1000:
+        return f"{ms:.0f} ms"
+    seconds = ms / 1000
+    if seconds < 60:
+        return f"{seconds:.1f} s"
+    return f"{int(seconds // 60)} min {seconds % 60:.0f} s"
+
+
+templates.env.filters.update(
+    money=money, date=nice_date, ago=ago, pct=percent, qty=quantity, duration=duration
+)
+templates.env.globals.update(
+    reason=labels.reason,
+    ACTIONS=labels.ACTIONS,
+    BANDS=labels.BANDS,
+    STATUSES=labels.STATUSES,
+    AUDIT=labels.AUDIT_ACTIONS,
+    DOC_TYPES=labels.DOCUMENT_TYPES,
+    VENDOR_STATUSES=labels.VENDOR_STATUSES,
+    PO_STATUSES=labels.PO_STATUSES,
+)
+
+
+# ── Inbox ─────────────────────────────────────────────────────────────────────
+
+
+async def _inbox_context(session: SessionDep, status: InvoiceStatus | None) -> dict[str, Any]:
+    query = invoice_query().order_by(Invoice.received_at.desc()).limit(200)
+    if status is not None:
+        query = query.where(Invoice.status == status)
+    counts_rows = await session.execute(
+        select(Invoice.status, func.count()).group_by(Invoice.status)
+    )
+    counts = {InvoiceStatus(row[0]): row[1] for row in counts_rows}
+    return {
+        "invoices": list(await session.scalars(query)),
+        "counts": counts,
+        "total": sum(counts.values()),
+        "status_filter": status,
+        "nav": "inbox",
+    }
+
+
+@router.get("/", response_class=HTMLResponse)
+async def inbox(
+    request: Request,
+    session: SessionDep,
+    status: InvoiceStatus | None = None,
+) -> HTMLResponse:
+    context = await _inbox_context(session, status)
+    return templates.TemplateResponse(request, "inbox.html", context)
+
+
+@router.post("/upload", response_model=None)
+async def upload(
+    request: Request,
+    file: UploadFile,
+    session: SessionDep,
+    pipeline: Annotated[InvoicePipeline, Depends(get_pipeline)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> Response:
+    try:
+        data = await file.read(settings.max_upload_bytes + 1)
+        if len(data) > settings.max_upload_bytes:
+            raise PayloadTooLargeError(
+                f"That file is larger than {settings.max_upload_bytes // (1024 * 1024)} MB."
+            )
+        result = await pipeline.receive(data, file.filename or "upload", file.content_type)
+        if not result.already_received:
+            runner = request.app.state.runner
+            if runner is not None:
+                runner.submit(result.invoice_id)  # watch it live on the journey page
+            else:
+                await pipeline.process(result.invoice_id)
+    except AppError as exc:
+        await session.rollback()
+        context = await _inbox_context(session, None)
+        context["error"] = exc.message
+        return templates.TemplateResponse(
+            request, "inbox.html", context, status_code=max(exc.status_code, 400)
+        )
+    suffix = "?notice=duplicate" if result.already_received else ""
+    return RedirectResponse(f"/invoices/{result.invoice_id}/journey{suffix}", status_code=303)
+
+
+# ── Review queue ──────────────────────────────────────────────────────────────
+
+
+@router.get("/review", response_class=HTMLResponse)
+async def review_queue(request: Request, session: SessionDep) -> HTMLResponse:
+    tasks = await ReviewService(session).list_open(limit=200)
+    return templates.TemplateResponse(request, "review.html", {"tasks": tasks, "nav": "review"})
+
+
+# ── Invoice page ──────────────────────────────────────────────────────────────
+
+
+async def _invoice_context(
+    request: Request, session: SessionDep, invoice_id: uuid.UUID
+) -> dict[str, Any]:
+    session.expire_all()
+    invoice = await session.scalar(invoice_query().where(Invoice.id == invoice_id))
+    if invoice is None:
+        raise NotFoundError("Invoice not found")
+
+    tasks = list(
+        await session.scalars(
+            select(ReviewTask)
+            .where(ReviewTask.invoice_id == invoice.id)
+            .order_by(ReviewTask.created_at)
+        )
+    )
+    open_task = next((task for task in tasks if task.status == ReviewStatus.OPEN), None)
+    entity_ids = [str(invoice.id), *(str(task.id) for task in tasks)]
+    events = list(
+        await session.scalars(
+            select(AuditEvent).where(AuditEvent.entity_id.in_(entity_ids)).order_by(AuditEvent.id)
+        )
+    )
+    decision = invoice.decisions[-1] if invoice.decisions else None
+    reviewer = request.cookies.get(REVIEWER_COOKIE, "")
+    return {
+        "invoice": invoice,
+        "decision": decision,
+        "open_task": open_task,
+        "terms": _terms(invoice),
+        "today": datetime.now(UTC).date(),
+        "review_warnings": (
+            await review_warnings(session, invoice, decision, reviewer) if open_task else []
+        ),
+        "events": events,
+        "jev_rows": _jev_rows(decision.jev_answers if decision else None),
+        "document_text": _document_text(request, invoice),
+        "is_pdf": invoice.content_type == "application/pdf",
+        "is_image": invoice.content_type in BROWSER_IMAGE_TYPES,
+        "proposes_reject": bool(decision and decision.action == DecisionAction.REJECT_DOCUMENT),
+        "reviewer": request.cookies.get(REVIEWER_COOKIE, ""),
+        "notice": NOTICES.get(request.query_params.get("notice", "")),
+        "nav": "review" if open_task else "inbox",
+    }
+
+
+@router.get("/invoices/{invoice_id}", response_class=HTMLResponse)
+async def invoice_page(
+    request: Request, invoice_id: uuid.UUID, session: SessionDep
+) -> HTMLResponse:
+    context = await _invoice_context(request, session, invoice_id)
+    return templates.TemplateResponse(request, "invoice.html", context)
+
+
+@router.post("/invoices/{invoice_id}/review", response_model=None)
+async def submit_review(
+    request: Request,
+    invoice_id: uuid.UUID,
+    session: SessionDep,
+    task_id: Annotated[uuid.UUID, Form()],
+    verdict: Annotated[str, Form(pattern="^(approve|reject)$")],
+    reviewer: Annotated[str, Form()] = "",
+    note: Annotated[str, Form()] = "",
+) -> Response:
+    reviewer = reviewer.strip()[:100]
+    try:
+        if not reviewer:
+            raise FormError("Enter your name so the decision is recorded against you.")
+        invoice = await session.get(Invoice, invoice_id)
+        decision = await session.scalar(
+            select(Decision)
+            .where(Decision.invoice_id == invoice_id)
+            .order_by(Decision.created_at.desc())
+        )
+        warnings = await review_warnings(session, invoice, decision, reviewer) if invoice else []
+        await ReviewService(session).resolve(
+            task_id,
+            approve=verdict == "approve",
+            reviewer=reviewer,
+            note=note[:2000] or None,
+            warnings=warnings if verdict == "approve" else None,
+        )
+    except AppError as exc:
+        await session.rollback()
+        context = await _invoice_context(request, session, invoice_id)
+        context.update(error=exc.message, reviewer=reviewer, note=note)
+        return templates.TemplateResponse(
+            request, "invoice.html", context, status_code=max(exc.status_code, 400)
+        )
+    notice = "approved" if verdict == "approve" else "rejected"
+    response = RedirectResponse(f"/invoices/{invoice_id}?notice={notice}", status_code=303)
+    response.set_cookie(
+        REVIEWER_COOKIE, reviewer, max_age=365 * 86400, httponly=True, samesite="lax"
+    )
+    return response
+
+
+@router.get("/invoices/{invoice_id}/document")
+async def original_document(
+    request: Request, invoice_id: uuid.UUID, session: SessionDep
+) -> Response:
+    invoice = await session.get(Invoice, invoice_id)
+    if invoice is None:
+        raise NotFoundError("Invoice not found")
+    storage: LocalFileStorage = request.app.state.storage
+    data = storage.read(invoice.storage_key)
+    inline_types = {"application/pdf", *BROWSER_IMAGE_TYPES, "image/tiff"}
+    media_type = (
+        invoice.content_type
+        if invoice.content_type in inline_types
+        else "text/plain; charset=utf-8"
+    )
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(invoice.original_filename)}",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+
+async def review_warnings(
+    session: SessionDep, invoice: Invoice, decision: Decision | None, reviewer: str
+) -> list[str]:
+    """Controls a real AP team enforces that this demo only warns about."""
+    warnings = [
+        "Demo: anyone can approve. In a real company your role sets how much you may"
+        " approve, and larger invoices go to a more senior approver."
+    ]
+    if decision is not None and decision.band == ActionBand.BLOCK:
+        warnings.append(
+            "Overriding a fraud block normally needs a second approver. Here one person can."
+        )
+    if reviewer and invoice.vendor_id is not None:
+        changed = await session.scalar(
+            select(AuditEvent)
+            .where(
+                AuditEvent.entity_id == str(invoice.vendor_id),
+                AuditEvent.action == "vendor.bank_account_changed",
+                func.lower(AuditEvent.actor) == reviewer.lower(),
+            )
+            .order_by(AuditEvent.id.desc())
+            .limit(1)
+        )
+        if changed is not None:
+            warnings.append(
+                f"You changed this vendor's bank details {ago(changed.occurred_at)}. In real AP,"
+                " someone else approves this vendor's invoices (separation of duties)."
+            )
+    return warnings
+
+
+def _terms(invoice: Invoice) -> PaymentTerms | None:
+    if invoice.invoice_date is None:
+        return None
+    vendor = invoice.vendor
+    return payment_terms(
+        invoice_date=invoice.invoice_date,
+        printed_due=invoice.due_date,
+        # The early-payment discount applies to what is still owed.
+        total=invoice.amount_due if invoice.amount_due is not None else invoice.total,
+        agreed_days=vendor.payment_terms_days if vendor else 30,
+        discount_pct=vendor.early_pay_discount_pct if vendor else None,
+        discount_days=vendor.early_pay_days if vendor else None,
+    )
+
+
+def _document_text(request: Request, invoice: Invoice) -> str | None:
+    """Readable text of a non-PDF original (plain text, or an email's body/attachment)."""
+    if invoice.content_type == "application/pdf" or invoice.content_type.startswith("image/"):
+        return None
+    storage: LocalFileStorage = request.app.state.storage
+    try:
+        data = storage.read(invoice.storage_key)
+        return parse_document(data, invoice.original_filename, invoice.content_type).text
+    except (AppError, OSError, ValueError):
+        return None
+
+
+def _jev_rows(answers: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Each Jev answer with the policy's verdict on it, for the judgment table."""
+    if not answers:
+        return []
+    t = DEFAULT_THRESHOLDS
+    rows: list[dict[str, Any]] = []
+
+    doc_type = answers["document_type"]
+    confidence = answers["document_type_confidence"]
+    type_label = labels.DOCUMENT_TYPES.get(doc_type, doc_type)
+    rows.append(
+        {
+            "label": "Document type",
+            "value": f"{type_label} ({percent(confidence)} sure)",
+            "bar": confidence,
+            "verdict": _verdict(
+                doc_type == "invoice" and confidence >= t.auto_choice_confidence,
+                confidence < t.auto_choice_confidence,
+            ),
+        }
+    )
+    payable = answers["is_payable"]
+    rows.append(
+        {
+            "label": "Asks for payment",
+            "value": percent(payable),
+            "bar": payable,
+            "verdict": _verdict(payable >= t.auto_is_payable, t.not_payable < payable),
+        }
+    )
+    for key, label in labels.JEV_SIGNALS:
+        probability = answers[key]
+        present_at = t.injection_signal if key == "prompt_injection" else t.fraud_signal
+        rows.append(
+            {
+                "label": label,
+                "value": percent(probability),
+                "bar": probability,
+                "verdict": (
+                    ("flagged", "block")
+                    if probability >= present_at
+                    else _verdict(probability <= t.risk_clear, True)
+                ),
+            }
+        )
+    risk = answers["payment_risk"]
+    level = "Low" if risk < t.moderate_risk else "Moderate" if risk < t.high_risk else "High"
+    rows.append(
+        {
+            "label": "Payment risk",
+            "value": f"{level} ({risk:.2f} of 2)",
+            "bar": risk / 2,
+            "verdict": (
+                ("clear", "ok")
+                if risk < t.moderate_risk
+                else ("unsure", "human")
+                if risk < t.high_risk
+                else ("flagged", "block")
+            ),
+        }
+    )
+    return rows
+
+
+def _verdict(clear: bool, unsure: bool) -> tuple[str, str]:
+    if clear:
+        return ("clear", "ok")
+    if unsure:
+        return ("unsure", "human")
+    return ("flagged", "confirm")
