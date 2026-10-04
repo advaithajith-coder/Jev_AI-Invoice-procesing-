@@ -92,9 +92,6 @@ class TranscriptionService:
         self._client = client
         self._ocr_model = ocr_model
 
-    async def wait_for_capacity(self) -> float:
-        return await self._client.wait_for_capacity()
-
     @property
     def instructions(self) -> str:
         """What the model is told, shown on the journey page."""

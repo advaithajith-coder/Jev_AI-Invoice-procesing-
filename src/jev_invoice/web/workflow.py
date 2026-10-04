@@ -164,11 +164,7 @@ async def workflow_page(request: Request, session: SessionDep) -> HTMLResponse:
             "w": await workflow_data(session),
             "nav": "workflow",
             # Who handles the AI desks, as configured: the map should name the real models.
-            "vision_label": (
-                f"{vision.split(':')[0]}, local"
-                if settings.vision_provider == "ollama"
-                else vision.split("/")[-1]
-            ),
+            "vision_label": f"{vision.split(':')[0]}, local",
             "extract_label": settings.groq_model.split("/")[-1],
         },
     )

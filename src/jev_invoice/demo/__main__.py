@@ -174,14 +174,14 @@ async def main() -> int:
     if extraction is None or jev is None:
         print("The demo needs GROQ_API_KEY and TYPESAFE_API_KEY in .env.")
         return 1
-    transcription, ollama_http = build_transcription(settings, groq_sdk)
+    transcription, ollama_http = build_transcription(settings)
 
     engine = create_engine(settings)
     try:
         backup = await reset_database(engine, settings)
         print(f"Database emptied and master data reloaded (backup: {backup}).")
         files = write_pack(pack_directory(settings))
-        print(f"Processing the sample pack ({settings.vision_provider} vision):")
+        print(f"Processing the sample pack (scans read locally by {settings.vision_model}):")
         outcomes = await load_pack(
             create_session_factory(engine),
             settings,

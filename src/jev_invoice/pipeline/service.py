@@ -291,14 +291,11 @@ class InvoicePipeline:
         if not parsed.needs_ocr:
             await steps.skip("transcribe", "Not needed: the document has a text layer")
             return parsed.text
-        if self._transcription is not None:
-            # Between steps: waiting on the model's rate limit is not processing time.
-            await self._transcription.wait_for_capacity()
         async with steps.run("transcribe") as step:
             if self._transcription is None:
                 raise AppError(
                     "This is a scan or photo, and reading images is not configured"
-                    " (set VISION_MODEL, and GROQ_API_KEY or VISION_PROVIDER=ollama)."
+                    " (set VISION_MODEL to a local Ollama model, e.g. glm-ocr:q8_0)."
                 )
             await step.progress(
                 f"Sending {len(parsed.page_images)} page image(s) to the vision model"

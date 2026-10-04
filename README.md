@@ -9,7 +9,7 @@ The design splits the work by what each part is good at:
 
 | Step | Done by | Why |
 |---|---|---|
-| Transcribe scans and photos | Vision LLM (Groq, `qwen/qwen3.8-27b`) | Jev reads text only, so images become text first |
+| Transcribe scans and photos | OCR model on this machine (Ollama, `glm-ocr:q8_0`) | Jev reads text only, so images become text first; images never leave the machine |
 | Read the invoice | LLM (Groq, `openai/gpt-oss-120b`) | Invoices vary too much for templates |
 | Check facts | Code | Arithmetic, dates, duplicates, PO matching have one right answer |
 | Judge the document | [TypeSafe Jev](https://typesafe.ai) | Fraud pressure, injected instructions, document type: calibrated probabilities, not prose |
@@ -18,7 +18,7 @@ The design splits the work by what each part is good at:
 ```
 upload (PDF / scan / photo / .txt / .eml)
   → parse + store original (SHA-256; same file twice = processed once)
-  → scans and photos: vision model transcribes each page to text (Groq, qwen)
+  → scans and photos: a local OCR model transcribes each page to text (Ollama, GLM-OCR)
   → extract fields (Groq)            Decimal money, real dates, raw bank account never stored
   → document checks (code)           arithmetic incl. discount + tax, dates, approval limit
   → master-data checks (code)        vendor known / on hold / blocked, bank account vs file,
@@ -78,7 +78,6 @@ Jev can be called directly from TypeSafe or through [BeatAPI](https://beatapi.io
 
 ```bash
 uv run poe demo             # wipe the local database and load the sample invoices (~2 min)
-uv run poe demo-dev         # the server, reading scans on Groq even if .env uses Ollama
 ```
 
 `poe demo` backs up `data/jev_invoice.db` to `data/jev_invoice.before-demo.db`, empties it,

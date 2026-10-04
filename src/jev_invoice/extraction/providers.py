@@ -74,7 +74,10 @@ class LLMProvider(Protocol):
 
 
 class GroqProvider:
-    """Groq chat completions (OpenAI-compatible)."""
+    """Groq chat completions (OpenAI-compatible), for text only.
+
+    Scans and photos are read locally (OllamaProvider); page images never go to Groq.
+    """
 
     name = "groq"
     permanent_errors: tuple[type[Exception], ...] = (
@@ -99,26 +102,11 @@ class GroqProvider:
         json_mode: bool,
         images: Sequence[PageImage] = (),
     ) -> LLMResponse:
-        user_content: str | list[dict[str, Any]] = user
         if images:
-            # OpenAI-style content parts; Groq accepts base64 data URIs (up to 3 per request).
-            user_content = [
-                {"type": "text", "text": user},
-                *(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{image.mime_type};base64,"
-                            + base64.b64encode(image.data).decode("ascii")
-                        },
-                    }
-                    for image in images
-                ),
-            ]
-        # The SDK's TypedDicts cannot express mixed content parts built at runtime.
+            raise ValueError("Page images are read locally, never sent to Groq.")
         messages: list[Any] = [
             {"role": "system", "content": system},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": user},
         ]
         # The raw response carries the rate-limit headers that pace the next call.
         raw = await self._client.chat.completions.with_raw_response.create(

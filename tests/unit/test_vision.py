@@ -176,32 +176,18 @@ def test_prompt_treats_image_text_as_data() -> None:
     assert "Never guess digits" in TRANSCRIPTION_PROMPT
 
 
-async def test_groq_provider_sends_images_as_data_uris() -> None:
-    raw = groq_sdk(
-        SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content="text"))],
-            usage=SimpleNamespace(prompt_tokens=2100, completion_tokens=40),
-            model="qwen/qwen3.8-27b",
+async def test_groq_never_receives_page_images() -> None:
+    raw = groq_sdk(SimpleNamespace())
+
+    with pytest.raises(ValueError, match="never sent to Groq"):
+        await GroqProvider(raw, "openai/gpt-oss-120b").complete(
+            system="s",
+            user="Page 1 of 1",
+            max_tokens=100,
+            json_mode=False,
+            images=[PageImage(b"\xff\xd8\xff", "image/jpeg")],
         )
-    )
-
-    await GroqProvider(raw, "qwen/qwen3.8-27b").complete(
-        system="s",
-        user="Page 1 of 1",
-        max_tokens=100,
-        json_mode=False,
-        images=[PageImage(b"\xff\xd8\xff", "image/jpeg")],
-    )
-
-    content = raw.chat.completions.with_raw_response.create.call_args.kwargs["messages"][1][
-        "content"
-    ]
-    assert content[0] == {"type": "text", "text": "Page 1 of 1"}
-    assert content[1]["type"] == "image_url"
-    assert content[1]["image_url"]["url"] == "data:image/jpeg;base64,/9j/"
-
-
-# ── Local OCR model through Ollama ────────────────────────────────────────────
+    raw.chat.completions.with_raw_response.create.assert_not_called()
 
 
 def _ollama(handler: Callable[[httpx.Request], httpx.Response]) -> OllamaProvider:

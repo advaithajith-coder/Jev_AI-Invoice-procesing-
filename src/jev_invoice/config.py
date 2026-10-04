@@ -54,11 +54,9 @@ class Settings(BaseSettings):
     llm_daily_budget_usd: Decimal = Decimal("5.00")
 
     # ── Vision transcription for scans and photos ─────────────────────────────
-    # groq: a general vision model on Groq (same key). ollama: a model on this machine,
-    # e.g. VISION_MODEL=glm-ocr:q8_0 after `ollama pull glm-ocr:q8_0`: free and private.
-    vision_provider: Literal["groq", "ollama"] = "groq"
-    # Empty disables it: scanned documents then fail with a clear message.
-    vision_model: str | None = "qwen/qwen3.8-27b"
+    # Read on this machine with Ollama, so page images never leave it
+    # (`ollama pull glm-ocr:q8_0`). Empty disables it: scans then fail with a clear message.
+    vision_model: str | None = "glm-ocr:q8_0"
     ollama_base_url: str = "http://localhost:11434"
     # A page image needs far more than Ollama's default 4096-token context.
     ollama_num_ctx: int = Field(default=16_384, ge=4096)
@@ -66,12 +64,10 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: float = 300.0
     # Caps a page that starts repeating itself. About 6,000 characters of text.
     ollama_max_output_tokens: int = Field(default=2048, ge=256)
-    # Estimate: Groq did not publish this model's price when written. Check groq.com/pricing.
-    vision_cost_per_input_token_usd: Decimal = Decimal("0.15") / 1_000_000
-    vision_cost_per_output_token_usd: Decimal = Decimal("0.60") / 1_000_000
     vision_max_pages: int = Field(default=5, ge=1, le=20)
     # Pages and photos are scaled so the longest side is at most this many pixels.
-    vision_max_image_px: int = 2000
+    # GLM-OCR dropped lines at 2000 px in testing; 1200 px read every line.
+    vision_max_image_px: int = 1200
 
     # ── Decision model (TypeSafe Jev) ─────────────────────────────────────────
     typesafe_api_key: SecretStr | None = None

@@ -54,37 +54,31 @@ def build_extraction(
 
 
 def build_transcription(
-    settings: Settings, groq_sdk: groq.AsyncGroq | None
+    settings: Settings,
 ) -> tuple[TranscriptionService | None, httpx.AsyncClient | None]:
-    """Vision transcription on Groq or a local Ollama, or None when not configured."""
+    """Vision transcription with a local Ollama model, or None when not configured.
+
+    Scans and photos are read only on this machine: page images are never sent to a
+    cloud model.
+    """
     if not settings.vision_model:
         return None, None
-    if settings.vision_provider == "ollama":
-        http = httpx.AsyncClient(
-            base_url=settings.ollama_base_url, timeout=settings.ollama_timeout_seconds
-        )
-        ocr_model = "ocr" in settings.vision_model.lower()
-        provider = OllamaProvider(
-            http,
-            settings.vision_model,
-            num_ctx=settings.ollama_num_ctx,
-            max_output_tokens=settings.ollama_max_output_tokens,
-            stop=OCR_STOP_SEQUENCES if ocr_model else (),
-        )
-        # Local and free: no cost per token.
-        client = LLMClient(
-            provider, settings, cost_per_input_token=Decimal(0), cost_per_output_token=Decimal(0)
-        )
-        return TranscriptionService(client, ocr_model=ocr_model), http
-    if groq_sdk is None:
-        return None, None
-    client = LLMClient(
-        GroqProvider(groq_sdk, settings.vision_model),
-        settings,
-        cost_per_input_token=settings.vision_cost_per_input_token_usd,
-        cost_per_output_token=settings.vision_cost_per_output_token_usd,
+    http = httpx.AsyncClient(
+        base_url=settings.ollama_base_url, timeout=settings.ollama_timeout_seconds
     )
-    return TranscriptionService(client), None
+    ocr_model = "ocr" in settings.vision_model.lower()
+    provider = OllamaProvider(
+        http,
+        settings.vision_model,
+        num_ctx=settings.ollama_num_ctx,
+        max_output_tokens=settings.ollama_max_output_tokens,
+        stop=OCR_STOP_SEQUENCES if ocr_model else (),
+    )
+    # Local and free: no cost per token.
+    client = LLMClient(
+        provider, settings, cost_per_input_token=Decimal(0), cost_per_output_token=Decimal(0)
+    )
+    return TranscriptionService(client, ocr_model=ocr_model), http
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -95,7 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_engine(settings)
         extraction, groq_sdk = build_extraction(settings)
-        transcription, ollama_http = build_transcription(settings, groq_sdk)
+        transcription, ollama_http = build_transcription(settings)
         jev = JevClient.from_settings(settings)
 
         app.state.settings = settings
@@ -118,11 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             env=settings.app_env,
             version=__version__,
             extraction=settings.groq_model if extraction else "not configured",
-            vision=(
-                f"{settings.vision_provider}:{settings.vision_model}"
-                if transcription
-                else "not configured"
-            ),
+            vision=f"ollama:{settings.vision_model}" if transcription else "not configured",
             jev=settings.typesafe_model if jev else "not configured",
             jev_base_url=settings.typesafe_base_url or "typesafe",
         )
