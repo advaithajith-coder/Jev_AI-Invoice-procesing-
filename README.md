@@ -54,7 +54,7 @@ Needs [uv](https://docs.astral.sh/uv/). No Docker or database server: local runs
 cp .env.example .env        # add GROQ_API_KEY and TYPESAFE_API_KEY
 uv sync
 uv run poe setup            # create the database and load demo vendors, POs, deliveries
-uv run poe dev              # http://localhost:8000 (screens), /docs (API)
+uv run poe dev              # http://localhost:8000
 ```
 
 Open http://localhost:8000: upload an invoice, then decide it from the **Review queue**.
@@ -73,6 +73,36 @@ fraud requires a written note on how it was verified.
 
 Jev can be called directly from TypeSafe or through [BeatAPI](https://beatapi.io/jev-api)
 (same API): set `TYPESAFE_BASE_URL=https://api.beatapi.io` and `TYPESAFE_MODEL=jev-1.13-free`.
+
+## Demo
+
+```bash
+uv run poe demo             # wipe the local database and load the sample invoices (~2 min)
+uv run poe demo-dev         # the server, reading scans on Groq even if .env uses Ollama
+```
+
+`poe demo` backs up `data/jev_invoice.db` to `data/jev_invoice.before-demo.db`, empties it,
+reloads the master data, and runs the sample pack in
+[`src/jev_invoice/demo/invoices`](src/jev_invoice/demo/invoices) through the real pipeline.
+Dates are filled in relative to today, so discounts are open and nothing is stale.
+
+| File | Shows | Outcome |
+|---|---|---|
+| `brightline-hosting.eml` | Clean invoice, emailed as a PDF | Approved automatically |
+| `acme-office-restock.pdf` | 2/10 net 30: the discount is open on **Payables** | Approved automatically |
+| `harbor-point-rent.png` | A scan, read by the vision model; rent needs no PO | Approved automatically |
+| `halcyon-laptops.pdf` | USD 12,950, over the approval limit | Needs budget approval |
+| `clearpath-new-bank.eml` | Pay a new bank account | Blocked: possible fraud |
+| `meridian-urgent-payment.pdf` | Pay today in gift cards. **Every code check passes: only Jev catches it** | Blocked: possible fraud |
+| `stratus-telecom.txt` | Instructions aimed at AI. **Only Jev catches it** | Held, or blocked when Jev also rates the risk high |
+| `brightline-hosting-resent.pdf` | The first invoice sent again | Proposed: reject (duplicate) |
+| `acme-lookalike-domain.eml` | Sent from acme-supplies.co, not acmesupplies.com | Needs a reviewer |
+| `acme-credit-note.pdf` | Credit for returned toner: apply it to AS-31010 | Needs a reviewer |
+| `northline-courier.pdf` | Not loaded: upload it live from `data/demo-pack/` | Approved automatically, with a discount |
+
+The models are live, so a sample can occasionally land differently; the command reports
+each result against what the sample was written to show. Groq's free tier allows about
+8,000 tokens a minute, so the command waits when Groq asks it to.
 
 ## Development
 

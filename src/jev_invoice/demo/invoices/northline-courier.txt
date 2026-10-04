@@ -1,0 +1,15 @@
+NORTHLINE FREIGHT INC
+900 Industrial Way, Tacoma WA 98421
+EIN 91-8119079
+
+INVOICE NF-2026-1188
+Invoice date: {{date-0}}
+Terms: 2/10 net 30
+Bill to: Northwind Analytics Inc
+PO: PO-1006
+
+Express courier shipment, Seattle to Chicago, up to 10 lb     40 x 18.50     740.00
+
+Total due (USD)                                                         740.00
+
+Remit to: Routing 125000024 Account 4405320130

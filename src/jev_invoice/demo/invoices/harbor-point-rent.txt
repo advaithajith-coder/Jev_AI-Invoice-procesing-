@@ -1,0 +1,17 @@
+HARBOR POINT PROPERTIES LLC
+88 Harbor Point Blvd, Boston MA 02210
+Tax ID 26-5550142
+
+RENT INVOICE HP-{{ym}}
+Invoice date: {{date-3}}
+Due date: {{date+2}}
+
+Tenant: Northwind Analytics Inc
+Premises: Suite 400, 88 Harbor Point Blvd
+
+Office rent, {{month}}                                      4,500.00
+
+Total due                                                 USD 4,500.00
+
+Please pay by ACH.
+Routing 111000025 Account 8800145521

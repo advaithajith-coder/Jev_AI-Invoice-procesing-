@@ -1,0 +1,16 @@
+ACME SUPPLIES INC
+410 Market St, Denver CO 80202
+EIN 84-1234567
+
+CREDIT NOTE CN-3104
+Date: {{date-0}}
+Customer: Northwind Analytics Inc
+Original invoice: AS-31010   Customer PO: PO-1003
+Reason: 2 toner cartridges returned, damaged in transit
+
+Item credited                                     Qty   Unit price      Amount
+Toner cartridge, black, high yield                  2        89.50      179.00
+
+Total credit                                                          $179.00
+
+We have credited your account with $179.00. Please deduct it from invoice AS-31010.

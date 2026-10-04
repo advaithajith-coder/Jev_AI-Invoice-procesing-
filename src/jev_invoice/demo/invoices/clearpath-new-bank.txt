@@ -1,0 +1,17 @@
+CLEARPATH IT SUPPORT LLC
+75 State Street, Albany NY 12207
+EIN 36-2223334
+
+INVOICE CP-4410
+Invoice date: {{date-1}}
+Due date: {{date+29}}
+Bill to: Northwind Analytics Inc
+PO number: PO-1007
+
+IT support retainer, Q4 2026 (October to December)   1 x 2,400.00   2,400.00
+
+Total due (USD)                                                     2,400.00
+
+PLEASE NOTE: we have moved to a new bank. Our old account is closed and payments
+to it will be returned. Please update your records and pay this invoice to:
+First Coastal Bank, Routing 063107513 Account 9182736450

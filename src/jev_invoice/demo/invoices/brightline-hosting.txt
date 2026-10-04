@@ -1,0 +1,19 @@
+BRIGHTLINE CLOUD SERVICES INC
+500 Pine Street, Suite 1200, Seattle WA 98101
+EIN 84-2219034 | billing@brightlinecloud.com
+
+INVOICE BCS-77120
+Invoice date: {{date-2}}
+Due date: {{date+28}}
+Bill to: Northwind Analytics Inc
+Your PO: PO-1004
+
+Description                                      Qty   Unit price      Amount
+Managed cloud hosting, September 2026              1     3,200.00    3,200.00
+
+Subtotal                                                             3,200.00
+Total due (USD)                                                      3,200.00
+
+Terms: net 30
+Remit to: Routing 021000021 Account 4417 2209
+Thank you for your business.

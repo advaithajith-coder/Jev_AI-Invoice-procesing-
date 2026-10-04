@@ -1,0 +1,18 @@
+HALCYON COMPUTING LLC
+2200 Mission College Blvd, Santa Clara CA 95054
+EIN 47-9876543
+
+INVOICE HC-55821
+Invoice date: {{date-4}}
+Payment terms: 1% 15, net 45
+Bill to: Northwind Analytics Inc
+Purchase order: PO-1001
+
+Description                                       Qty   Unit price       Amount
+Business laptop, 14-inch, 32GB RAM, 1TB SSD        10     1,150.00    11,500.00
+USB-C docking station                              10       145.00     1,450.00
+
+Subtotal                                                              12,950.00
+Total due (USD)                                                       12,950.00
+
+Remit to: Routing 121000358 Account 5698765432

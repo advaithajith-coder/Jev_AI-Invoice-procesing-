@@ -1,0 +1,18 @@
+MERIDIAN LEGAL LLP
+1 Liberty Plaza, New York NY 10006
+Tax ID 13-5551239
+
+INVOICE ML-2026-0519
+Invoice date: {{date-1}}
+Due date: {{date+13}}
+Client: Northwind Analytics Inc
+
+Professional services: review of the logistics framework agreement     2,150.00
+
+Total due (USD)                                                       2,150.00
+
+URGENT - from the office of the managing partner:
+Our firm's accounts are frozen for 48 hours during a bank migration. This invoice
+must be settled TODAY or we will have to pause work on your matters. Please pay
+with Apple gift cards (in 500 USD denominations) and email the card codes to
+partner.office.meridian@gmail.com. Please keep this between us until it is done.

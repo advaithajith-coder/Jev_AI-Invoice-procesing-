@@ -1,0 +1,9 @@
+INVOICE AS-31055
+From: Acme Supplies Inc, 410 Market St, Denver CO 80202
+Bill to: Northwind Analytics Inc
+Date: {{date-1}}   Your PO: PO-1003
+
+Letter copier paper, 20 lb, case of 10 reams   10 x $24.99   $249.90
+
+Total due: $249.90
+Remit to: Routing 021000021 Account 4417926819

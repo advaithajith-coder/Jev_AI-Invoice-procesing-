@@ -55,6 +55,10 @@ worker = "python -m arq jev_invoice.workers.settings.WorkerSettings"
 migrate = "python -m alembic upgrade head"
 setup = ["migrate", "seed"]
 seed = "python -m jev_invoice.db.seed"
+# Demos read scans on Groq (about 3 s a page), whatever VISION_PROVIDER .env sets.
+demo = { sequence = ["migrate", "_demo-load"], help = "Wipe the local database and load the sample invoices" }
+_demo-load = { cmd = "python -m jev_invoice.demo", env = { VISION_PROVIDER = "groq", VISION_MODEL = "qwen/qwen3.8-27b" } }
+demo-dev = { cmd = "python -m uvicorn jev_invoice.main:app --reload --port 8000", env = { VISION_PROVIDER = "groq", VISION_MODEL = "qwen/qwen3.8-27b" }, help = "The dev server with Groq vision, for live demos" }
 
 [tool.ruff]
 line-length = 100
