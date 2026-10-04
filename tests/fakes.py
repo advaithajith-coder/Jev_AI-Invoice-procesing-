@@ -8,7 +8,9 @@ import io
 import json
 from collections.abc import Callable, Sequence
 from email.message import EmailMessage
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx2
 from fastapi import FastAPI
@@ -319,6 +321,17 @@ def make_email(
     if image is not None:
         message.add_attachment(image, maintype="image", subtype="jpeg", filename="photo.jpg")
     return message.as_bytes()
+
+
+def groq_sdk(completion: Any, headers: dict[str, str] | None = None) -> MagicMock:
+    """A stand-in Groq SDK whose raw chat completion returns *completion* and *headers*."""
+    sdk = MagicMock()
+    sdk.chat.completions.with_raw_response.create = AsyncMock(
+        return_value=SimpleNamespace(
+            parse=AsyncMock(return_value=completion), headers=headers or {}
+        )
+    )
+    return sdk
 
 
 ACME_INVOICE_TEXT = """\

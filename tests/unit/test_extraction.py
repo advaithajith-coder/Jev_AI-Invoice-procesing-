@@ -2,7 +2,6 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
 
 import groq
 import httpx
@@ -13,7 +12,12 @@ from jev_invoice.core.errors import BudgetExceededError, ExtractionError
 from jev_invoice.core.resilience import CircuitOpenError
 from jev_invoice.extraction.client import LLMClient
 from jev_invoice.extraction.prompts import PROMPT_VERSION, build_user_prompt
-from jev_invoice.extraction.providers import GroqProvider
+from jev_invoice.extraction.providers import (
+    GroqProvider,
+    LLMResponse,
+    RateLimit,
+    parse_rate_limit,
+)
 from jev_invoice.extraction.service import ExtractionService
 from tests.conftest import make_settings
 from tests.fakes import (
@@ -22,6 +26,7 @@ from tests.fakes import (
     FakeProviderError,
     PermanentProviderError,
     acme_invoice_fields,
+    groq_sdk,
 )
 
 
@@ -162,24 +167,62 @@ def test_document_cannot_close_the_data_block() -> None:
 
 
 async def test_groq_provider_request_and_response() -> None:
-    raw = MagicMock()
-    raw.chat.completions.create = AsyncMock(
-        return_value=SimpleNamespace(
+    raw = groq_sdk(
+        SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content='{"a": 1}'))],
             usage=SimpleNamespace(prompt_tokens=120, completion_tokens=30),
             model="openai/gpt-oss-120b",
-        )
+        ),
+        headers={
+            "x-ratelimit-limit-tokens": "8000",
+            "x-ratelimit-remaining-tokens": "4289",
+            "x-ratelimit-reset-tokens": "27.832s",
+        },
     )
 
     response = await GroqProvider(raw, "openai/gpt-oss-120b").complete(
         system="sys", user="usr", max_tokens=512, json_mode=True
     )
 
-    kwargs = raw.chat.completions.create.call_args.kwargs
+    kwargs = raw.chat.completions.with_raw_response.create.call_args.kwargs
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["temperature"] == 0
     assert kwargs["messages"][0] == {"role": "system", "content": "sys"}
     assert (response.text, response.input_tokens, response.output_tokens) == ('{"a": 1}', 120, 30)
+    assert response.rate_limit == RateLimit(8000, 4289, 27.832)
+
+
+@pytest.mark.parametrize(
+    ("reset", "seconds"),
+    [("27.832s", 27.832), ("1m4.8s", 64.8), ("7.66ms", 0.00766), ("2h3m1s", 7381.0)],
+)
+def test_rate_limit_reset_durations(reset: str, seconds: float) -> None:
+    headers = {
+        "x-ratelimit-limit-tokens": "8000",
+        "x-ratelimit-remaining-tokens": "100",
+        "x-ratelimit-reset-tokens": reset,
+    }
+
+    rate = parse_rate_limit(headers)
+
+    assert rate is not None
+    assert rate.reset_seconds == pytest.approx(seconds)
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"x-ratelimit-limit-tokens": "8000", "x-ratelimit-remaining-tokens": "100"},
+        {
+            "x-ratelimit-limit-tokens": "8000",
+            "x-ratelimit-remaining-tokens": "100",
+            "x-ratelimit-reset-tokens": "soon",
+        },
+    ],
+)
+def test_rate_limit_absent_or_unreadable(headers: dict[str, str]) -> None:
+    assert parse_rate_limit(headers) is None
 
 
 def test_groq_unknown_model_is_permanent() -> None:
@@ -214,3 +257,80 @@ def test_rate_limit_waits_for_retry_after_capped(
 
     assert client._retry_after(_rate_limit(header)) == wait
     assert client._retry_after(FakeProviderError("blip")) is None
+
+
+# ── Pacing under a per-minute token allowance ─────────────────────────────────
+
+
+class _RatedProvider:
+    """Answers every call and reports what is left of an 8,000-token allowance."""
+
+    name = "groq"
+    model = "openai/gpt-oss-120b"
+    permanent_errors: tuple[type[Exception], ...] = ()
+    retryable_errors: tuple[type[Exception], ...] = ()
+
+    def __init__(self, remaining: int, reset_seconds: float) -> None:
+        self.rate = RateLimit(8000, remaining, reset_seconds)
+
+    async def complete(self, **_: object) -> LLMResponse:
+        return LLMResponse("{}", 900, 700, self.model, rate_limit=self.rate)
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.waits: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.waits.append(seconds)
+        self.now += seconds
+
+
+async def test_no_wait_before_the_provider_reports_an_allowance(llm_settings: Settings) -> None:
+    clock = _Clock()
+    client = LLMClient(FakeLLMProvider({"ok": True}), llm_settings, clock=clock, sleep=clock.sleep)
+
+    await client.complete(system="s", user="u")
+
+    assert await client.wait_for_capacity() == 0.0
+    assert clock.waits == []
+
+
+async def test_waits_before_the_call_until_the_allowance_has_room(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, llm_tokens_per_call=2500)
+    clock = _Clock()
+    # 1,000 tokens left, refilling 7,000 over 35 s: 200 tokens a second.
+    client = LLMClient(_RatedProvider(1000, 35.0), settings, clock=clock, sleep=clock.sleep)
+    await client.complete(system="s", user="u")
+
+    waited = await client.wait_for_capacity()
+
+    assert waited == pytest.approx(7.5)  # 1,500 more tokens at 200 a second
+    assert clock.waits == [pytest.approx(7.5)]
+
+
+async def test_each_caller_reserves_its_share(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, llm_tokens_per_call=2500)
+    clock = _Clock()
+    client = LLMClient(_RatedProvider(6000, 15.0), settings, clock=clock, sleep=clock.sleep)
+    await client.complete(system="s", user="u")
+
+    first = await client.wait_for_capacity()  # 6,000 left: room
+    second = await client.wait_for_capacity()  # 3,500 left: room
+    third = await client.wait_for_capacity()  # 1,000 left: waits for 1,500 more
+
+    assert (first, second) == (0.0, 0.0)
+    assert third == pytest.approx(1500 / (2000 / 15.0))
+
+
+async def test_wait_is_capped(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, llm_tokens_per_call=2500, llm_retry_after_max_seconds=5)
+    clock = _Clock()
+    client = LLMClient(_RatedProvider(0, 60.0), settings, clock=clock, sleep=clock.sleep)
+    await client.complete(system="s", user="u")
+
+    assert await client.wait_for_capacity() == 5.0

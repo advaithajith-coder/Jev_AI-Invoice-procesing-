@@ -291,6 +291,9 @@ class InvoicePipeline:
         if not parsed.needs_ocr:
             await steps.skip("transcribe", "Not needed: the document has a text layer")
             return parsed.text
+        if self._transcription is not None:
+            # Between steps: waiting on the model's rate limit is not processing time.
+            await self._transcription.wait_for_capacity()
         async with steps.run("transcribe") as step:
             if self._transcription is None:
                 raise AppError(
@@ -331,6 +334,9 @@ class InvoicePipeline:
         return transcription.text
 
     async def _extract(self, invoice: Invoice, text: str, steps: StepRecorder) -> ExtractionResult:
+        if self._extraction is not None:
+            # Between steps: waiting on the model's rate limit is not processing time.
+            await self._extraction.wait_for_capacity()
         async with steps.run("extract") as step:
             if self._extraction is None:
                 raise AppError("Extraction is not configured (GROQ_API_KEY is missing).")

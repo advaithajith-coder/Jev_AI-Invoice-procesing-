@@ -1,7 +1,8 @@
 """Provider-neutral LLM client: daily budget, circuit breaker, retries, cost accounting."""
 
+import asyncio
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -11,7 +12,7 @@ import structlog
 from jev_invoice.config import Settings
 from jev_invoice.core.errors import BudgetExceededError, ExtractionError
 from jev_invoice.core.resilience import CircuitBreaker, retry_async
-from jev_invoice.extraction.providers import LLMProvider, LLMResponse
+from jev_invoice.extraction.providers import LLMProvider, LLMResponse, RateLimit
 from jev_invoice.ingest.parsing import PageImage
 
 log = structlog.get_logger(__name__)
@@ -30,6 +31,28 @@ class LLMCall:
     latency_ms: float
 
 
+@dataclass
+class _Allowance:
+    """A per-minute token allowance that refills steadily, estimated between calls."""
+
+    limit: int
+    tokens: float
+    refill_per_second: float
+    at: float
+
+    @classmethod
+    def from_rate_limit(cls, rate: RateLimit, now: float) -> "_Allowance":
+        used = rate.limit_tokens - rate.remaining_tokens
+        if used > 0 and rate.reset_seconds > 0:
+            refill = used / rate.reset_seconds
+        else:
+            refill = rate.limit_tokens / 60  # full: assume a per-minute allowance
+        return cls(rate.limit_tokens, float(rate.remaining_tokens), refill, now)
+
+    def available(self, now: float) -> float:
+        return min(self.limit, self.tokens + self.refill_per_second * (now - self.at))
+
+
 class LLMClient:
     def __init__(
         self,
@@ -40,6 +63,8 @@ class LLMClient:
         today: Callable[[], date] = lambda: datetime.now(UTC).date(),
         cost_per_input_token: Decimal | None = None,
         cost_per_output_token: Decimal | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._provider = provider
         self._settings = settings
@@ -61,6 +86,10 @@ class LLMClient:
         self._today = today
         self._spend_day = today()
         self._spent_today = Decimal(0)
+        self._clock = clock
+        self._sleep = sleep
+        self._allowance: _Allowance | None = None
+        self._gate = asyncio.Lock()
 
     @property
     def breaker(self) -> CircuitBreaker:
@@ -70,6 +99,33 @@ class LLMClient:
     def spent_today_usd(self) -> Decimal:
         self._roll_day()
         return self._spent_today
+
+    async def wait_for_capacity(self) -> float:
+        """Wait until the provider's per-minute token allowance has room for one call.
+
+        The pipeline calls this before a timed step starts, so waiting on a rate limit
+        is not counted as processing time. Callers queue here one at a time, and each
+        reserves its share of the allowance. Returns the seconds waited: 0 when there is
+        room, or when the provider reports no allowance (Ollama, tests).
+        """
+        async with self._gate:
+            allowance = self._allowance
+            if allowance is None or allowance.refill_per_second <= 0:
+                return 0.0
+            need = self._settings.llm_tokens_per_call
+            available = allowance.available(self._clock())
+            wait = 0.0
+            if available < need:
+                wait = min(
+                    (need - available) / allowance.refill_per_second,
+                    self._settings.llm_retry_after_max_seconds,
+                )
+                log.info("waiting_for_rate_limit", provider=self._provider.name, seconds=wait)
+                await self._sleep(wait)
+            now = self._clock()
+            allowance.tokens = allowance.available(now) - need
+            allowance.at = now
+            return wait
 
     async def complete(
         self,
@@ -110,6 +166,8 @@ class LLMClient:
                 details={"provider": self._provider.name, "error_type": type(exc).__name__},
             ) from exc
         self._breaker.record_success()
+        if response.rate_limit is not None:
+            self._allowance = _Allowance.from_rate_limit(response.rate_limit, self._clock())
 
         cost = response.input_tokens * self._cost_in + response.output_tokens * self._cost_out
         self._spent_today += cost

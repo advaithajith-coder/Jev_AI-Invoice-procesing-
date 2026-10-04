@@ -102,7 +102,8 @@ Dates are filled in relative to today, so discounts are open and nothing is stal
 
 The models are live, so a sample can occasionally land differently; the command reports
 each result against what the sample was written to show. Groq's free tier allows about
-8,000 tokens a minute, so the command waits when Groq asks it to.
+8,000 tokens a minute (an invoice uses about 2,200), so when the allowance runs low an
+invoice waits before its model step starts. The times on screen are processing time only.
 
 ## Development
 

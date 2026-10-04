@@ -7,7 +7,6 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -34,7 +33,7 @@ from jev_invoice.ingest.parsing import (
     parse_document,
 )
 from tests.conftest import make_settings
-from tests.fakes import FakeLLMProvider, make_email, make_image, make_pdf
+from tests.fakes import FakeLLMProvider, groq_sdk, make_email, make_image, make_pdf
 
 
 def _size(page: PageImage) -> tuple[int, int]:
@@ -178,9 +177,8 @@ def test_prompt_treats_image_text_as_data() -> None:
 
 
 async def test_groq_provider_sends_images_as_data_uris() -> None:
-    raw = MagicMock()
-    raw.chat.completions.create = AsyncMock(
-        return_value=SimpleNamespace(
+    raw = groq_sdk(
+        SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="text"))],
             usage=SimpleNamespace(prompt_tokens=2100, completion_tokens=40),
             model="qwen/qwen3.8-27b",
@@ -195,7 +193,9 @@ async def test_groq_provider_sends_images_as_data_uris() -> None:
         images=[PageImage(b"\xff\xd8\xff", "image/jpeg")],
     )
 
-    content = raw.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+    content = raw.chat.completions.with_raw_response.create.call_args.kwargs["messages"][1][
+        "content"
+    ]
     assert content[0] == {"type": "text", "text": "Page 1 of 1"}
     assert content[1]["type"] == "image_url"
     assert content[1]["image_url"]["url"] == "data:image/jpeg;base64,/9j/"

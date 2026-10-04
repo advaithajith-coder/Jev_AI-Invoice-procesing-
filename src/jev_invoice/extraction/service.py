@@ -31,6 +31,9 @@ class ExtractionService:
     def __init__(self, client: LLMClient) -> None:
         self._client = client
 
+    async def wait_for_capacity(self) -> float:
+        return await self._client.wait_for_capacity()
+
     async def extract(self, document_text: str) -> ExtractionResult:
         """Read invoice fields from *document_text*.
 

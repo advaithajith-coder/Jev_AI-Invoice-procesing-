@@ -7,7 +7,8 @@ retrying. Retry, circuit breaking, and cost tracking live in LLMClient, shared b
 
 import asyncio
 import base64
-from collections.abc import Sequence
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -18,11 +19,41 @@ from jev_invoice.ingest.parsing import PageImage
 
 
 @dataclass(frozen=True)
+class RateLimit:
+    """The provider's per-minute token allowance, as its response headers report it."""
+
+    limit_tokens: int
+    remaining_tokens: int
+    reset_seconds: float
+    """Until the allowance is full again; it refills steadily over this time."""
+
+
+@dataclass(frozen=True)
 class LLMResponse:
     text: str
     input_tokens: int
     output_tokens: int
     model: str
+    rate_limit: RateLimit | None = None
+
+
+_DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)")
+_UNIT_SECONDS = {"h": 3600.0, "m": 60.0, "s": 1.0, "ms": 0.001}
+
+
+def parse_rate_limit(headers: Mapping[str, str]) -> RateLimit | None:
+    """Groq's x-ratelimit-*-tokens headers (reset like "1m4.8s"), or None when absent."""
+    try:
+        limit = int(headers["x-ratelimit-limit-tokens"])
+        remaining = int(headers["x-ratelimit-remaining-tokens"])
+        reset = headers["x-ratelimit-reset-tokens"].strip()
+    except (KeyError, ValueError):
+        return None
+    parts = _DURATION_PART.findall(reset)
+    if not parts or "".join(number + unit for number, unit in parts) != reset:
+        return None
+    seconds = sum(float(number) * _UNIT_SECONDS[unit] for number, unit in parts)
+    return RateLimit(limit, remaining, seconds)
 
 
 class LLMProvider(Protocol):
@@ -89,19 +120,22 @@ class GroqProvider:
             {"role": "system", "content": system},
             {"role": "user", "content": user_content},
         ]
-        completion = await self._client.chat.completions.create(
+        # The raw response carries the rate-limit headers that pace the next call.
+        raw = await self._client.chat.completions.with_raw_response.create(
             model=self.model,
             max_tokens=max_tokens,
             temperature=0,
             messages=messages,
             response_format={"type": "json_object"} if json_mode else {"type": "text"},
         )
+        completion = await raw.parse()
         usage = completion.usage
         return LLMResponse(
             text=completion.choices[0].message.content or "",
             input_tokens=usage.prompt_tokens if usage else 0,
             output_tokens=usage.completion_tokens if usage else 0,
             model=completion.model or self.model,
+            rate_limit=parse_rate_limit(raw.headers),
         )
 
 

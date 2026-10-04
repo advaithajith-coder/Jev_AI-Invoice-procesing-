@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # On a rate limit, wait as long as the provider asks (Groq's free tier counts tokens
     # per minute), but never longer than this.
     llm_retry_after_max_seconds: float = 60.0
+    # Tokens one extraction or page transcription is expected to use. Before a model step
+    # starts, the pipeline waits until the per-minute allowance has this much room, so
+    # the wait is not counted as processing time.
+    llm_tokens_per_call: int = Field(default=2500, ge=1)
     llm_daily_budget_usd: Decimal = Decimal("5.00")
 
     # ── Vision transcription for scans and photos ─────────────────────────────
