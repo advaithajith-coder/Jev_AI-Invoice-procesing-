@@ -105,3 +105,47 @@ async def test_non_retryable_error_raised_immediately() -> None:
             sleep=_no_sleep,
         )
     assert len(attempts) == 1
+
+
+async def test_retry_waits_as_long_as_the_hint_says() -> None:
+    waits: list[float] = []
+    attempts = []
+
+    async def record(seconds: float) -> None:
+        waits.append(seconds)
+
+    async def rate_limited() -> str:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise ConnectionError("429")
+        return "ok"
+
+    result = await retry_async(
+        rate_limited,
+        attempts=3,
+        should_retry=lambda e: True,
+        delay_hint=lambda e: 27.5,
+        sleep=record,
+    )
+
+    assert result == "ok" and waits == [27.5]
+
+
+async def test_retry_without_a_hint_uses_jittered_backoff() -> None:
+    waits: list[float] = []
+
+    async def record(seconds: float) -> None:
+        waits.append(seconds)
+
+    async def always_fails() -> None:
+        raise ConnectionError("down")
+
+    with pytest.raises(ConnectionError):
+        await retry_async(
+            always_fails,
+            attempts=2,
+            should_retry=lambda e: True,
+            delay_hint=lambda e: None,
+            sleep=record,
+        )
+    assert len(waits) == 1 and 0 <= waits[0] <= 0.5

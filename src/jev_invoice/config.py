@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = 4096
     llm_timeout_seconds: float = 60.0
     llm_max_attempts: int = 3
+    # On a rate limit, wait as long as the provider asks (Groq's free tier counts tokens
+    # per minute), but never longer than this.
+    llm_retry_after_max_seconds: float = 60.0
     llm_daily_budget_usd: Decimal = Decimal("5.00")
 
     # ── Vision transcription for scans and photos ─────────────────────────────

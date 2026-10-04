@@ -194,3 +194,23 @@ def test_groq_unknown_model_is_permanent() -> None:
     assert isinstance(not_found, GroqProvider.permanent_errors)
     assert not isinstance(bad_json, GroqProvider.permanent_errors)
     assert isinstance(bad_json, GroqProvider.retryable_errors)
+
+
+def _rate_limit(retry_after: str | None) -> groq.RateLimitError:
+    headers = {"retry-after": retry_after} if retry_after is not None else {}
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(429, headers=headers, request=request)
+    return groq.RateLimitError("rate limited", response=response, body=None)
+
+
+@pytest.mark.parametrize(
+    ("header", "wait"),
+    [("7", 7.0), ("27.8", 27.8), ("600", 60.0), (None, None), ("Wed, 21 Oct 2026", None)],
+)
+def test_rate_limit_waits_for_retry_after_capped(
+    llm_settings: Settings, header: str | None, wait: float | None
+) -> None:
+    client = LLMClient(FakeLLMProvider({"ok": True}), llm_settings)
+
+    assert client._retry_after(_rate_limit(header)) == wait
+    assert client._retry_after(FakeProviderError("blip")) is None

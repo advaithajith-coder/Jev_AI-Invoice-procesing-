@@ -87,11 +87,13 @@ async def retry_async[T](
     should_retry: Callable[[Exception], bool],
     base_delay: float = 0.5,
     max_delay: float = 8.0,
+    delay_hint: Callable[[Exception], float | None] | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> T:
     """Run *operation*, retrying errors that `should_retry` accepts.
 
-    Backoff is exponential with full jitter. The last error is re-raised unchanged.
+    Backoff is exponential with full jitter, unless `delay_hint` returns the wait the
+    service asked for (a rate limit's Retry-After). The last error is re-raised unchanged.
     """
     for attempt in range(1, attempts + 1):
         try:
@@ -99,7 +101,12 @@ async def retry_async[T](
         except Exception as exc:
             if attempt == attempts or not should_retry(exc):
                 raise
-            delay = random.uniform(0, min(max_delay, base_delay * 2 ** (attempt - 1)))  # noqa: S311
+            hinted = delay_hint(exc) if delay_hint is not None else None
+            delay = (
+                hinted
+                if hinted is not None
+                else random.uniform(0, min(max_delay, base_delay * 2 ** (attempt - 1)))  # noqa: S311
+            )
             log.info("retrying", attempt=attempt, delay_s=round(delay, 2), error=type(exc).__name__)
             await sleep(delay)
     raise AssertionError("unreachable")  # pragma: no cover

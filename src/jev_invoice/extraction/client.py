@@ -100,6 +100,7 @@ class LLMClient:
                 lambda: self._call(system, user, json_mode, images),
                 attempts=self._settings.llm_max_attempts,
                 should_retry=self._is_retryable,
+                delay_hint=self._retry_after,
             )
         except Exception as exc:
             self._breaker.record_failure()
@@ -149,6 +150,15 @@ class LLMClient:
         if isinstance(exc, self._provider.permanent_errors):
             return False
         return isinstance(exc, self._provider.retryable_errors)
+
+    def _retry_after(self, exc: Exception) -> float | None:
+        """The wait a rate-limited provider asked for (Retry-After, in seconds), capped."""
+        headers = getattr(getattr(exc, "response", None), "headers", None)
+        try:
+            seconds = float(headers["retry-after"])  # type: ignore[index]
+        except (TypeError, KeyError, ValueError):  # no header, or an HTTP date
+            return None
+        return min(max(seconds, 0.0), self._settings.llm_retry_after_max_seconds)
 
     def _roll_day(self) -> None:
         today = self._today()
