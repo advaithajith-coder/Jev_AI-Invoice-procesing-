@@ -20,7 +20,7 @@ from jev_invoice.domain.decision import JevAnswers, JevStatus, PolicyOutcome
 from jev_invoice.domain.enums import ActionBand, DecisionAction, ReasonCode
 from jev_invoice.domain.invoice import CheckFinding
 
-POLICY_VERSION = "p6"  # p6: sender domain and vendor tax ID must match when both are known
+POLICY_VERSION = "p7"  # p7: a credit note is held for a person, never proposed for rejection
 
 R = ReasonCode
 
@@ -153,14 +153,20 @@ def _jev_reasons(jev: JevAnswers, t: PolicyThresholds) -> list[ReasonCode]:
     uncertain = False
 
     # Act on a non-invoice label only when Jev is confident about it.
+    credit_note = False
     if jev.document_type_confidence < t.auto_choice_confidence:
         uncertain = True
     elif jev.document_type == "credit_note":
         reasons.append(R.CREDIT_NOTE)
+        credit_note = True
     elif jev.document_type != "invoice":
         reasons.append(R.NOT_AN_INVOICE)
 
-    if jev.is_payable <= t.not_payable:
+    # A credit note never asks for payment: that is what makes it one, and it is money
+    # owed to us, so it goes to a person to apply instead of being proposed for rejection.
+    if credit_note:
+        pass
+    elif jev.is_payable <= t.not_payable:
         reasons.append(R.NOT_PAYABLE)
     elif jev.is_payable < t.auto_is_payable:
         uncertain = True

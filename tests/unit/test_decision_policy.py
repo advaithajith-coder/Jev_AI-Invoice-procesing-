@@ -107,6 +107,13 @@ def test_single_jev_signal(
     assert ReasonCode(reason) in outcome.reason_codes
 
 
+def test_credit_note_is_held_not_rejected_although_it_asks_for_no_payment() -> None:
+    outcome = _decide(jev=clean_jev_answers(document_type="credit_note", is_payable=0.02))
+
+    assert (outcome.action, outcome.band) == ("hold_review", "human")
+    assert outcome.reason_codes == [ReasonCode.CREDIT_NOTE]
+
+
 @pytest.mark.parametrize(
     ("status", "reason"),
     [("not_configured", R.JEV_NOT_CONFIGURED), ("unavailable", R.JEV_UNAVAILABLE)],
