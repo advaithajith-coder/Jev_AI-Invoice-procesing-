@@ -51,7 +51,8 @@ async def payables_page(request: Request, session: SessionDep, tab: str = "open"
 
 
 @router.get("/payables/invoices.csv")
-async def invoices_csv(session: SessionDep, tab: str = "open") -> Response:
+async def invoices_csv(request: Request, session: SessionDep, tab: str = "open") -> Response:
+    base = request.app.state.settings.base_currency
     view = await overview(session)
     rows = view.tab(tab if tab in TABS else "open")
     return _csv(
@@ -62,11 +63,13 @@ async def invoices_csv(session: SessionDep, tab: str = "open") -> Response:
             "Invoice date",
             "Pay by",
             "Days late",
+            "Currency",
             "Billed",
             "Owed",
             "Plan to pay on",
             "Discount kept",
             "To pay",
+            f"To pay ({base})",
             "Status",
         ],
         (
@@ -76,11 +79,13 @@ async def invoices_csv(session: SessionDep, tab: str = "open") -> Response:
                 item.invoice.invoice_date or "",
                 item.terms.pay_by if item.terms else "",
                 item.days_late,
+                item.invoice.currency or base,
                 item.balance.billed,
                 item.owed,
                 "" if item.held or not item.owed else item.pay_on,
                 item.discount,
                 item.to_pay,
+                item.to_pay_base,
                 _status(item),
             ]
             for item in rows

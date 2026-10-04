@@ -15,6 +15,7 @@ from jev_invoice.domain.vendors import normalize_vendor_name
 
 REQUIRED_FIELDS = ("vendor_name", "invoice_number", "invoice_date", "total")
 _FUTURE_GRACE = timedelta(days=1)
+_CENT = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -39,8 +40,18 @@ def run_document_checks(
     base_currency: str = "USD",
     stale_after_days: int = 180,
     company_name: str | None = None,
+    fx_rate: Decimal | None = None,
+    fx_note: str = "",
 ) -> list[CheckOutcome]:
-    """Run every document-level check, keeping each result (never short-circuits)."""
+    """Run every document-level check, keeping each result (never short-circuits).
+
+    *fx_rate* converts an invoice in another currency to *base_currency* (1 unit = fx_rate);
+    *fx_note* says where the rate came from. Without a rate, such an invoice goes to a person.
+    """
+    foreign = bool(invoice.currency) and invoice.currency != base_currency
+    total_in_base = invoice.total
+    if foreign and invoice.total is not None:
+        total_in_base = (invoice.total * fx_rate).quantize(_CENT) if fx_rate else None
     return [
         CheckOutcome(
             "required_fields",
@@ -57,8 +68,10 @@ def run_document_checks(
         ),
         CheckOutcome(
             "currency",
-            f"Invoice is in {base_currency}",
-            tuple(check_currency(invoice, base_currency=base_currency)),
+            f"Converted to {base_currency}: {fx_note}"
+            if foreign and fx_rate
+            else f"Invoice is in {base_currency}, or can be converted to it",
+            tuple(check_currency(invoice, base_currency=base_currency, fx_rate=fx_rate)),
         ),
         *(
             [
@@ -73,8 +86,17 @@ def run_document_checks(
         ),
         CheckOutcome(
             "approval_limit",
-            f"Within the approval limit ({approval_limit:,.2f})",
-            tuple(check_approval_limit(invoice, approval_limit=approval_limit)),
+            f"Within the approval limit ({approval_limit:,.2f} {base_currency})"
+            if total_in_base is not None or invoice.total is None
+            else "Approval limit: not compared (no exchange rate)",
+            tuple(
+                check_approval_limit(
+                    invoice,
+                    approval_limit=approval_limit,
+                    total_in_base=total_in_base,
+                    base_currency=base_currency,
+                )
+            ),
         ),
     ]
 
@@ -88,6 +110,7 @@ def check_extraction(
     base_currency: str = "USD",
     stale_after_days: int = 180,
     company_name: str | None = None,
+    fx_rate: Decimal | None = None,
 ) -> list[CheckFinding]:
     """Run every document-level check and return all findings (never short-circuits)."""
     outcomes = run_document_checks(
@@ -96,6 +119,7 @@ def check_extraction(
         tolerance=tolerance,
         approval_limit=approval_limit,
         base_currency=base_currency,
+        fx_rate=fx_rate,
         stale_after_days=stale_after_days,
         company_name=company_name,
     )
@@ -231,30 +255,47 @@ def check_dates(
     return findings
 
 
-def check_currency(invoice: ExtractedInvoice, *, base_currency: str) -> list[CheckFinding]:
-    """Only the company's own currency is processed automatically (no FX conversion yet).
+def check_currency(
+    invoice: ExtractedInvoice, *, base_currency: str, fx_rate: Decimal | None = None
+) -> list[CheckFinding]:
+    """Another currency is fine once it can be converted; without a rate, a person decides.
 
     An invoice with no currency printed is assumed to be in the base currency; its amounts
     are still checked against the vendor and the purchase order.
     """
-    if invoice.currency and invoice.currency != base_currency:
+    if invoice.currency and invoice.currency != base_currency and not fx_rate:
         return [
             CheckFinding(
                 code=ReasonCode.FOREIGN_CURRENCY,
-                message=f"The invoice is in {invoice.currency}; only {base_currency} is supported",
+                message=(
+                    f"The invoice is in {invoice.currency}, and no exchange rate to"
+                    f" {base_currency} was found for its date"
+                ),
             )
         ]
     return []
 
 
 def check_approval_limit(
-    invoice: ExtractedInvoice, *, approval_limit: Decimal
+    invoice: ExtractedInvoice,
+    *,
+    approval_limit: Decimal,
+    total_in_base: Decimal | None = None,
+    base_currency: str = "USD",
 ) -> list[CheckFinding]:
-    if invoice.total is not None and invoice.total > approval_limit:
-        return [
-            CheckFinding(
-                code=ReasonCode.OVER_APPROVAL_LIMIT,
-                message=f"Total {invoice.total} is above the approval limit of {approval_limit}",
-            )
-        ]
-    return []
+    """The limit is in the base currency: a converted total is compared, never a raw one.
+
+    *total_in_base*: the total converted to the base currency; None when the invoice is in
+    another currency with no rate (FOREIGN_CURRENCY already sends it to a person).
+    """
+    if invoice.total is None or total_in_base is None or total_in_base <= approval_limit:
+        return []
+    converted = f" ({base_currency} {total_in_base:,.2f})" if total_in_base != invoice.total else ""
+    return [
+        CheckFinding(
+            code=ReasonCode.OVER_APPROVAL_LIMIT,
+            message=(
+                f"Total {invoice.total}{converted} is above the approval limit of {approval_limit}"
+            ),
+        )
+    ]

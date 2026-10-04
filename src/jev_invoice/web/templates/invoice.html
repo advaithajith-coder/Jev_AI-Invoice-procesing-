@@ -20,7 +20,7 @@
     </p>
     {{ rail(invoice, big=true) }}
   </div>
-  <p class="invoice-head__total">{% if invoice.total is not none %}<small>{{ invoice.currency }}</small>{{ invoice.total | money }}{% endif %}</p>
+  <p class="invoice-head__total">{% if invoice.total is not none %}<small>{{ invoice.currency }}</small>{{ invoice.total | money }}{% if invoice.fx_rate %}<span class="invoice-head__base">≈ {{ base_currency }} {{ invoice.in_base(invoice.total) | money }}</span>{% endif %}{% endif %}</p>
 </header>
 
 <p class="journey-cta"><a href="/invoices/{{ invoice.id }}/journey">See the journey: every step, model, check, time and cost</a></p>
@@ -205,7 +205,11 @@
         {% if balance.paid %}<dt>Paid</dt><dd>-{{ balance.paid | money(cur) }}</dd>{% endif %}
         {% if balance.discount %}<dt>Discount kept</dt><dd>-{{ balance.discount | money(cur) }}</dd>{% endif %}
         <dt>{{ "Balance to pay" if balance.settled else "Amount to pay" }}</dt>
-        <dd class="strong">{{ balance.balance | money(cur) }}{% if balance.state == "paid" %} <span class="tag tag--ok">paid in full</span>{% endif %}</dd>
+        <dd class="strong">{{ balance.balance | money(cur) }}{% if invoice.fx_rate %} <span class="muted">≈ {{ base_currency }} {{ invoice.in_base(balance.balance) | money }}</span>{% endif %}{% if balance.state == "paid" %} <span class="tag tag--ok">paid in full</span>{% endif %}</dd>
+        {% if invoice.fx_rate %}
+        <dt>Exchange rate</dt>
+        <dd>1 {{ cur }} = {{ invoice.fx_rate | rate }} {{ base_currency }} <span class="muted">({{ invoice.fx_rate_source }}, {{ invoice.fx_rate_date | date }})</span></dd>
+        {% endif %}
         {% if terms and balance.balance %}
         <dt>Pay by</dt>
         <dd>{{ terms.pay_by | date }} <span class="muted">(agreed terms: {{ terms.label }})</span></dd>
@@ -403,7 +407,7 @@
         {% if invoice.discount %}<dt>Discount</dt><dd>-{{ invoice.discount | money(invoice.currency) }}</dd>{% endif %}
         {% if invoice.shipping %}<dt>Shipping</dt><dd>{{ invoice.shipping | money(invoice.currency) }}</dd>{% endif %}
         <dt>Tax</dt><dd>{{ (invoice.tax_total | money(invoice.currency)) or "not shown" }}</dd>
-        <dt>Total</dt><dd class="strong">{{ invoice.total | money(invoice.currency) }}</dd>
+        <dt>Total</dt><dd class="strong">{{ invoice.total | money(invoice.currency) }}{% if invoice.fx_rate %} <span class="muted">≈ {{ base_currency }} {{ invoice.in_base(invoice.total) | money }}</span>{% endif %}</dd>
         {% if invoice.amount_paid %}<dt>Already paid</dt><dd>-{{ invoice.amount_paid | money(invoice.currency) }}</dd>{% endif %}
         {% if invoice.amount_due is not none and invoice.amount_due != invoice.total %}<dt>Balance due</dt><dd class="strong">{{ invoice.amount_due | money(invoice.currency) }}</dd>{% endif %}
       </dl>

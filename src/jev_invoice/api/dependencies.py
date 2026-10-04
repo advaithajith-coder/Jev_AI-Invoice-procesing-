@@ -41,6 +41,7 @@ def build_pipeline(state: Any, session: AsyncSession) -> InvoicePipeline:
         extraction=state.extraction,
         decisions=state.decisions,
         transcription=state.transcription,
+        rates=getattr(state, "rates", None),
     )
 
 

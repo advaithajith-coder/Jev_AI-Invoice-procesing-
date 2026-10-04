@@ -37,6 +37,7 @@ from jev_invoice.demo.pack import Sample, write_pack
 from jev_invoice.domain.enums import DecisionAction
 from jev_invoice.extraction.service import ExtractionService
 from jev_invoice.extraction.vision import TranscriptionService
+from jev_invoice.fx.service import RateSource
 from jev_invoice.ingest.storage import LocalFileStorage
 from jev_invoice.pipeline.service import InvoicePipeline
 from jev_invoice.web.labels import ACTIONS, STATUSES, reason
@@ -92,6 +93,7 @@ async def load_pack(
     extraction: ExtractionService | None,
     transcription: TranscriptionService | None,
     decisions: DecisionService,
+    rates: RateSource | None = None,
 ) -> list[Outcome]:
     """Process the samples in order, as if each had just been uploaded."""
     storage = LocalFileStorage(settings.storage_dir)
@@ -108,6 +110,7 @@ async def load_pack(
                 extraction=extraction,
                 decisions=decisions,
                 transcription=transcription,
+                rates=rates,
             )
             result = await pipeline.process_upload(
                 path.read_bytes(), path.name, sample.content_type
@@ -161,7 +164,7 @@ def _line(outcome: Outcome) -> str:
 
 
 async def main() -> int:
-    from jev_invoice.main import build_extraction, build_transcription  # the app's wiring
+    from jev_invoice.main import build_extraction, build_rates, build_transcription
 
     settings = get_settings()
     configure_logging("WARNING", json=False)
@@ -175,6 +178,7 @@ async def main() -> int:
         print("The demo needs GROQ_API_KEY and TYPESAFE_API_KEY in .env.")
         return 1
     transcription, ollama_http = build_transcription(settings)
+    rates, rates_http = build_rates(settings)
 
     engine = create_engine(settings)
     try:
@@ -189,6 +193,7 @@ async def main() -> int:
             extraction=extraction,
             transcription=transcription,
             decisions=DecisionService(jev, settings),
+            rates=rates,
         )
     finally:
         await jev.aclose()
@@ -196,6 +201,8 @@ async def main() -> int:
             await groq_sdk.close()
         if ollama_http is not None:
             await ollama_http.aclose()
+        if rates_http is not None:
+            await rates_http.aclose()
         await engine.dispose()
 
     missed = [o for o in outcomes if not o.as_expected]

@@ -26,6 +26,7 @@ from jev_invoice.extraction.client import LLMClient
 from jev_invoice.extraction.providers import GroqProvider, OllamaProvider
 from jev_invoice.extraction.service import ExtractionService
 from jev_invoice.extraction.vision import OCR_STOP_SEQUENCES, TranscriptionService
+from jev_invoice.fx.service import FrankfurterSource
 from jev_invoice.ingest.storage import LocalFileStorage
 from jev_invoice.pipeline.runner import BackgroundRunner
 from jev_invoice.web import admin as web_admin
@@ -81,6 +82,14 @@ def build_transcription(
     return TranscriptionService(client, ocr_model=ocr_model), http
 
 
+def build_rates(settings: Settings) -> tuple[FrankfurterSource | None, httpx.AsyncClient | None]:
+    """Exchange rates for invoices in another currency, or None when switched off."""
+    if not settings.fx_rates_url:
+        return None, None
+    http = httpx.AsyncClient(timeout=settings.fx_timeout_seconds)
+    return FrankfurterSource(http, settings.fx_rates_url), http
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, json=settings.log_json)
@@ -90,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings)
         extraction, groq_sdk = build_extraction(settings)
         transcription, ollama_http = build_transcription(settings)
+        rates, rates_http = build_rates(settings)
         jev = JevClient.from_settings(settings)
 
         app.state.settings = settings
@@ -99,6 +109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.storage = LocalFileStorage(settings.storage_dir)
         app.state.extraction = extraction
         app.state.transcription = transcription
+        app.state.rates = rates
         app.state.decisions = DecisionService(jev, settings)
         app.state.runner = None
         if settings.background_processing:
@@ -127,6 +138,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await groq_sdk.close()
             if ollama_http is not None:
                 await ollama_http.aclose()
+            if rates_http is not None:
+                await rates_http.aclose()
             if app.state.redis is not None:
                 await app.state.redis.aclose()
             await engine.dispose()
@@ -152,7 +165,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(web_exceptions.router)
     app.include_router(web_workflow.router)
     app.mount("/static", StaticFiles(directory=WEB_STATIC_DIR), name="static")
-    web.use_company(settings.company_name)
+    web.use_company(settings.company_name, settings.base_currency)
     return app
 
 

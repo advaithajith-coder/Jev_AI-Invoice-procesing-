@@ -122,6 +122,23 @@ def test_only_the_base_currency_passes(currency: str | None, expected: list[Reas
     assert _codes(_invoice(currency=currency)) == expected
 
 
+def test_another_currency_with_a_rate_is_checked_in_dollars() -> None:
+    inr = _invoice(currency="INR", subtotal="301050", discount="0", total="301050", line_items=[])
+
+    def codes(rate: str) -> list[ReasonCode]:
+        findings = check_extraction(
+            inr,
+            today=TODAY,
+            tolerance=Decimal("0.02"),
+            approval_limit=LIMIT,
+            fx_rate=Decimal(rate),
+        )
+        return [finding.code for finding in findings]
+
+    assert codes("0.01038") == []  # USD 3,124.90
+    assert codes("0.02") == [ReasonCode.OVER_APPROVAL_LIMIT]  # USD 6,021.00
+
+
 def test_foreign_currency_goes_to_a_person() -> None:
     from jev_invoice.decision.policy import decide
     from jev_invoice.domain.enums import DecisionAction

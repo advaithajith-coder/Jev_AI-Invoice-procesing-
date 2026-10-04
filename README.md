@@ -20,6 +20,7 @@ upload (PDF / scan / photo / .txt / .eml)
   → parse + store original (SHA-256; same file twice = processed once)
   → scans and photos: a local OCR model transcribes each page to text (Ollama, GLM-OCR)
   → extract fields (Groq)            Decimal money, real dates, raw bank account never stored
+  → other currency (e.g. INR)        converted to USD at the ECB rate for the invoice date
   → document checks (code)           arithmetic incl. discount + tax, dates, approval limit
   → master-data checks (code)        vendor known / on hold / blocked, bank account vs file,
                                      currency, duplicate, PO 2-way + 3-way match
@@ -39,9 +40,16 @@ Every applicable reason is recorded; the action comes from the highest-priority 
 | 1 | `fraud_review` | block | bank account differs from file, vendor blocked, Jev: bank details changed, unusual payment method, high risk |
 | 2 | `hold_review` | human | Jev: prompt injection; Jev not configured or unavailable |
 | 3 | `reject_document` | confirm | duplicate invoice; Jev: not an invoice, not payable |
-| 4 | `hold_review` | human | credit note, missing fields, totals/dates wrong, unknown or on-hold vendor, currency mismatch, PO problems, goods not received, urgency, moderate risk, Jev uncertain |
+| 4 | `hold_review` | human | credit note, missing fields, totals/dates wrong, unknown or on-hold vendor, no exchange rate for the invoice's currency, currency differs from the vendor's or PO's, PO problems, goods not received, urgency, moderate risk, Jev uncertain |
 | 5 | `route_approval` | confirm | over approval limit, no purchase order |
 | – | `auto_approve` | auto | nothing above |
+
+An invoice in another currency is converted to USD at the European Central Bank rate for
+its invoice date ([Frankfurter](https://frankfurter.dev), free, no key; only the currency
+and date are sent), then checked like any other: the approval limit and PO tolerance work
+in USD, and Payables shows each amount with its USD equivalent and totals in USD. The rate,
+its date and its source are kept on the invoice. The vendor (and PO) must be set up in that
+currency; with no rate, a person decides.
 
 Details: [ADR 001](docs/decisions/001-extraction-checks-judgment-policy.md),
 [ADR 003](docs/decisions/003-decision-policy.md).

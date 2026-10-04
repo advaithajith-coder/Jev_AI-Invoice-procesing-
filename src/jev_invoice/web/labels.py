@@ -160,9 +160,10 @@ REASONS: dict[ReasonCode, Reason] = {
         "human",
     ),
     R.FOREIGN_CURRENCY: Reason(
-        "Not in US dollars",
-        "Only USD invoices are processed automatically. Check the amount and how it will be"
-        " paid before approving.",
+        "Could not convert to US dollars",
+        "No exchange rate was found for this currency and date, so the amount could not be"
+        " checked against USD limits. Check the amount and how it will be paid before"
+        " approving.",
         "human",
     ),
     R.CURRENCY_MISMATCH: Reason(

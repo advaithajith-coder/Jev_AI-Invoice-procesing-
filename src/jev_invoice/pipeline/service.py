@@ -19,6 +19,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import PurePath
 from typing import Any
 
@@ -51,6 +52,7 @@ from jev_invoice.domain.vendors import bank_account_last4
 from jev_invoice.extraction.prompts import SYSTEM_PROMPT
 from jev_invoice.extraction.service import ExtractionResult, ExtractionService
 from jev_invoice.extraction.vision import TranscriptionService
+from jev_invoice.fx.service import ExchangeRates, Rate, RateSource
 from jev_invoice.ingest.parsing import ParsedDocument, parse_document
 from jev_invoice.ingest.storage import LocalFileStorage
 from jev_invoice.masterdata.rules import RulesService
@@ -100,6 +102,7 @@ class InvoicePipeline:
         extraction: ExtractionService | None,
         decisions: DecisionService,
         transcription: TranscriptionService | None = None,
+        rates: RateSource | None = None,
         today: Callable[[], date] = lambda: datetime.now(UTC).date(),
     ) -> None:
         self._session = session
@@ -108,6 +111,7 @@ class InvoicePipeline:
         self._extraction = extraction
         self._decisions = decisions
         self._transcription = transcription
+        self._rates = rates
         self._today = today
 
     async def process_upload(
@@ -209,6 +213,7 @@ class InvoicePipeline:
         )
         text = await self._transcribe(invoice, parsed, steps)
         extraction = await self._extract(invoice, text, steps)
+        rate = await self._exchange_rate(invoice)
 
         async with steps.run("document_checks") as step:
             outcomes = run_document_checks(
@@ -220,6 +225,8 @@ class InvoicePipeline:
                 base_currency=self._settings.base_currency,
                 stale_after_days=self._settings.stale_invoice_days,
                 company_name=self._settings.company_name,
+                fx_rate=rate.rate if rate else None,
+                fx_note=_rate_note(rate) if rate else "",
             )
             passed = sum(outcome.passed for outcome in outcomes)
             step.summary = f"{passed} of {len(outcomes)} passed"
@@ -233,7 +240,13 @@ class InvoicePipeline:
                 self._session,
                 fingerprint_key=self._settings.bank_fingerprint_key.get_secret_value().encode(),
                 price_tolerance_pct=self._settings.po_price_tolerance_pct,
-                tolerance_max_amount=self._settings.po_tolerance_max_amount,
+                # The cap is in the company's currency; a PO in the invoice's currency
+                # compares against the same amount converted.
+                tolerance_max_amount=(
+                    (self._settings.po_tolerance_max_amount / rate.rate).quantize(Decimal("0.01"))
+                    if rate
+                    else self._settings.po_tolerance_max_amount
+                ),
                 duplicate_window_days=self._settings.duplicate_window_days,
             ).match(extraction.invoice, invoice_id=invoice.id, sender_email=invoice.sender_email)
             self._apply_match(invoice, match)
@@ -284,6 +297,28 @@ class InvoicePipeline:
                 step.summary = "Sent to the review queue for a person to decide."
                 step.details = {"review_task_id": str(task.id)}
             step.details["status"] = str(invoice.status)
+
+    async def _exchange_rate(self, invoice: Invoice) -> Rate | None:
+        """For an invoice in another currency: the rate to the company's, kept on the invoice.
+
+        The rate is the one for the invoice date (today's when the date is missing or in the
+        future). None for an invoice in the company's currency, or when no rate is found.
+        """
+        base = self._settings.base_currency
+        if not invoice.currency or invoice.currency == base:
+            return None
+        today = self._today()
+        on = (
+            invoice.invoice_date
+            if invoice.invoice_date and invoice.invoice_date <= today
+            else today
+        )
+        rate = await ExchangeRates(self._session, base, self._rates).rate(invoice.currency, on)
+        if rate is not None:
+            invoice.fx_rate = rate.rate
+            invoice.fx_rate_date = rate.rate_date
+            invoice.fx_rate_source = rate.source
+        return rate
 
     async def _transcribe(
         self, invoice: Invoice, parsed: ParsedDocument, steps: StepRecorder
@@ -669,6 +704,11 @@ def _read_summary(parsed: ParsedDocument) -> str:
     pages = f", {parsed.page_count} page(s)" if parsed.page_count else ""
     what = {"pdf": "PDF", "text": "Text file", "email": "Email"}.get(parsed.kind, parsed.kind)
     return f"{what}{pages}: {len(parsed.text):,} characters of text"
+
+
+def _rate_note(rate: Rate) -> str:
+    published = rate.rate_date.strftime("%d %b %Y").lstrip("0")
+    return f"1 {rate.currency} = {rate.rate.normalize():f} {rate.base} ({rate.source}, {published})"
 
 
 def _check_row(outcome: CheckOutcome) -> dict[str, Any]:

@@ -28,6 +28,7 @@ def make_settings(tmp_path: Path, **overrides: object) -> Settings:
         "storage_dir": tmp_path / "files",
         "groq_api_key": None,
         "typesafe_api_key": None,
+        "fx_rates_url": None,
         "redis_url": None,
         "approval_limit": Decimal("5000.00"),
         "background_processing": False,

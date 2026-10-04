@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     # The company's currency. Only invoices in it are processed automatically; any other
     # currency goes to a person (there is no exchange-rate conversion yet).
     base_currency: str = Field(default="USD", pattern="^[A-Z]{3}$")
+    # Invoices in another currency are converted at the ECB rate for their date (Frankfurter,
+    # free, no key) and then checked like any other. Empty: no conversion, so they go to a
+    # person.
+    fx_rates_url: str | None = "https://api.frankfurter.dev/v1"
+    fx_timeout_seconds: float = 10.0
     # Invoices above this total (in the base currency) need a budget owner's approval.
     approval_limit: Decimal = Decimal("5000.00")
     # Allowed difference when checking arithmetic (rounding on printed invoices).

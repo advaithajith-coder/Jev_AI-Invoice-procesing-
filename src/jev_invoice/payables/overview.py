@@ -75,6 +75,31 @@ class Item:
     def to_pay(self) -> Decimal:
         return self.owed - self.discount
 
+    # In the company's currency, so invoices in different currencies add up.
+    @property
+    def converted(self) -> bool:
+        return self.invoice.fx_rate is not None
+
+    @property
+    def owed_base(self) -> Decimal:
+        return self.invoice.in_base(self.owed)
+
+    @property
+    def discount_base(self) -> Decimal:
+        return self.invoice.in_base(self.discount)
+
+    @property
+    def to_pay_base(self) -> Decimal:
+        return self.invoice.in_base(self.to_pay)
+
+    @property
+    def paid_base(self) -> Decimal:
+        return self.invoice.in_base(self.balance.paid)
+
+    @property
+    def paid_discount_base(self) -> Decimal:
+        return self.invoice.in_base(self.balance.discount)
+
     @property
     def held(self) -> bool:
         return bool(self.invoice.hold_kind)

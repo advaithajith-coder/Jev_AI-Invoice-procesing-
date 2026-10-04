@@ -32,10 +32,10 @@
             {% if inv.description %}<span class="sub">{{ inv.description }}</span>{% endif %}</td>
           <td class="c-ref">{{ inv.invoice_number or inv.original_filename }}</td>
           {% if tab == "paid" %}
-          <td class="c-total num">{{ item.balance.paid | money(inv.currency) }}{% if item.balance.discount %}<span class="sub">+ {{ item.balance.discount | money }} discount kept</span>{% endif %}</td>
+          <td class="c-total num">{{ item.balance.paid | money(inv.currency) }}{% if item.converted %}<span class="sub">≈ {{ cur }} {{ item.paid_base | money }}</span>{% endif %}{% if item.balance.discount %}<span class="sub">+ {{ item.balance.discount | money }} discount kept</span>{% endif %}</td>
           <td class="c-when">{{ item.last_paid | date }}</td>
           {% else %}
-          <td class="c-total num">{{ item.owed | money(inv.currency) }}{% if item.balance.settled %}<span class="sub">of {{ item.balance.billed | money }} billed</span>{% endif %}</td>
+          <td class="c-total num">{{ item.owed | money(inv.currency) }}{% if item.converted %}<span class="sub">≈ {{ cur }} {{ item.owed_base | money }}</span>{% endif %}{% if item.balance.settled %}<span class="sub">of {{ item.balance.billed | money }} billed</span>{% endif %}</td>
           <td class="c-when">
             {% if item.held %}<span class="muted">when released</span><span class="sub">due {{ item.terms.pay_by | date if item.terms else "no date" }}</span>
             {% elif item.late %}<b>Now</b> <span class="tag tag--block">{{ item.days_late }} day{{ "s" if item.days_late != 1 }} late</span><span class="sub">was due {{ item.terms.pay_by | date }}</span>
@@ -53,12 +53,12 @@
         <tr>
           <th scope="row" colspan="2">Total <span class="muted">{{ count }} invoice{{ "s" if count != 1 }}</span></th>
           {% if tab == "paid" %}
-          {% set kept = rows | sum(attribute="balance.discount") %}
-          <td class="num">{{ cur }} {{ (rows | sum(attribute="balance.paid")) | money }}{% if kept %}<span class="sub">+ {{ kept | money }} discount kept</span>{% endif %}</td>
+          {% set kept = rows | sum(attribute="paid_discount_base") %}
+          <td class="num">{{ cur }} {{ (rows | sum(attribute="paid_base")) | money }}{% if kept %}<span class="sub">+ {{ kept | money }} discount kept</span>{% endif %}</td>
           <td colspan="2"></td>
           {% else %}
-          {% set owed = rows | sum(attribute="owed") %}
-          {% set kept = rows | sum(attribute="discount") %}
+          {% set owed = rows | sum(attribute="owed_base") %}
+          {% set kept = rows | sum(attribute="discount_base") %}
           <td class="num">{{ cur }} {{ owed | money }}</td>
           <td colspan="2">{% if kept %}<span class="totals__note">{{ (owed - kept) | money }} if paid on these dates, keeping {{ kept | money }} in discounts</span>{% endif %}</td>
           {% endif %}

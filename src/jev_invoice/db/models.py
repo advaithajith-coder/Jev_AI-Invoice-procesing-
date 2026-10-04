@@ -283,6 +283,12 @@ class Invoice(TimestampMixin, Base):
     bank_account_last4: Mapped[str | None] = mapped_column(String(4))
     bank_account_fingerprint: Mapped[str | None] = mapped_column(String(64))
 
+    # Conversion to the company's currency, for an invoice in another currency:
+    # 1 unit of `currency` = fx_rate units of the base currency, as published on fx_rate_date.
+    fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
+    fx_rate_date: Mapped[date | None] = mapped_column(Date)
+    fx_rate_source: Mapped[str | None] = mapped_column(String(50))
+
     # Vision transcription (scans and photos only): what the model read from the image
     transcribed_text: Mapped[str | None] = mapped_column(Text)
     transcription_model: Mapped[str | None] = mapped_column(String(100))
@@ -337,6 +343,12 @@ class Invoice(TimestampMixin, Base):
     steps: Mapped[list["PipelineStep"]] = relationship(
         order_by="PipelineStep.position", viewonly=True
     )
+
+    def in_base(self, amount: Decimal) -> Decimal:
+        """*amount* (in the invoice's currency) in the company's currency."""
+        if self.fx_rate is None:
+            return amount
+        return (amount * self.fx_rate).quantize(Decimal("0.01"))
 
 
 class InvoiceLine(Base):
@@ -515,6 +527,27 @@ class ExportBatch(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="export_batch")
+
+
+class ExchangeRate(Base):
+    """A published exchange rate, fetched once and reused (see fx/service.py)."""
+
+    __tablename__ = "exchange_rates"
+    __table_args__ = (
+        UniqueConstraint("currency", "base_currency", "requested_date"),
+        CheckConstraint("rate > 0", name="exchange_rate_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    currency: Mapped[str] = mapped_column(String(3))
+    base_currency: Mapped[str] = mapped_column(String(3))
+    # The day asked for (the invoice date) and the day the rate was published for: the
+    # last business day on or before it.
+    requested_date: Mapped[date] = mapped_column(Date)
+    rate_date: Mapped[date] = mapped_column(Date)
+    rate: Mapped[Decimal] = mapped_column(Numeric(18, 8))
+    source: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class AppSetting(Base):

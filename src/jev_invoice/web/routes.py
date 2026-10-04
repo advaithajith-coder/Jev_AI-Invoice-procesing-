@@ -124,8 +124,13 @@ def duration(ms: object) -> str:
     return f"{int(seconds // 60)} min {seconds % 60:.0f} s"
 
 
+def rate(value: Decimal) -> str:
+    """An exchange rate without trailing zeros: 0.01038000 -> 0.01038."""
+    return f"{value.normalize():f}"
+
+
 templates.env.filters.update(
-    money=money, date=nice_date, ago=ago, pct=percent, qty=quantity, duration=duration
+    rate=rate, money=money, date=nice_date, ago=ago, pct=percent, qty=quantity, duration=duration
 )
 # Changes when the stylesheet or script changes, so browsers fetch the new version.
 _STATIC = Path(__file__).parent / "static"
@@ -134,9 +139,11 @@ ASSET_VERSION = max(int((_STATIC / name).stat().st_mtime) for name in ("app.css"
 _LEGAL_SUFFIX = re.compile(r",?\s+(inc|llc|ltd|llp|corp|co|plc|gmbh)\.?$", re.IGNORECASE)
 
 
-def use_company(name: str) -> None:
-    """Name the screens after the company they process invoices for."""
-    templates.env.globals.update(company=name, company_short=_LEGAL_SUFFIX.sub("", name))
+def use_company(name: str, base_currency: str = "USD") -> None:
+    """Name the screens after the company they process invoices for, and its currency."""
+    templates.env.globals.update(
+        company=name, company_short=_LEGAL_SUFFIX.sub("", name), base_currency=base_currency
+    )
 
 
 use_company(Settings.model_fields["company_name"].default)

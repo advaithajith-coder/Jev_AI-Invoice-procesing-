@@ -262,6 +262,7 @@ textarea { resize: vertical; }
 .invoice-head h1 { margin: 0; }
 .invoice-head__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; margin: 0.35rem 0 0; color: var(--ink-2); }
 .invoice-head__total { margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; }
+.invoice-head__base { display: block; font-size: 0.85rem; font-weight: 400; color: var(--ink-3); }
 .invoice-head__total small { margin-right: 0.35rem; font-size: 0.55em; font-weight: 600; color: var(--ink-3); }
 .journey-cta { margin: -0.5rem 0 1.25rem; font-size: 0.92rem; }
 
