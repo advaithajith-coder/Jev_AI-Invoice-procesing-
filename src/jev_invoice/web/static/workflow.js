@@ -17,14 +17,14 @@
   const edge = (id) => document.getElementById(`e-${id}`);
   const STEP_NODE = {
     received: "arrive", read: "read", transcribe: "vision", extract: "extract",
-    document_checks: "doc", master_data: "md", judgment: "jev", decision: "policy", outcome: "policy",
+    document_checks: "doc", master_data: "md", judgment: "jev", coding: "coding", decision: "policy", outcome: "policy",
   };
 
   // ── Routes: [edge, desk it arrives at, ink colour from here on] ──────────────
   const START = [["in", "arrive"], ["arrive_read", "read"]];
   const TEXT = [["read_extract", "extract"]];
   const SCAN = [["read_vision", "vision"], ["vision_extract", "extract"]];
-  const CHECKS = [["extract_doc", "doc"], ["doc_md", "md"], ["md_jev", "jev"], ["jev_policy", "policy"]];
+  const CHECKS = [["extract_doc", "doc"], ["doc_md", "md"], ["md_jev", "jev"], ["jev_coding", "coding"], ["coding_policy", "policy"]];
   const PAID = [["approved_export", "export"], ["export_accounting", "accounting"]];
   const AUTO = [["policy_approved", "approved", "ok"], ...PAID];
   const REVIEW = [["policy_review", "review", "human"], ["review_person", "person"]];
@@ -193,7 +193,7 @@
       const li = el("li");
       const a = el("a", item.label);
       a.href = item.url;
-      li.append(a, " ", el("span", item.number, "typed"), el("span", `At desk: ${item.desk_title}`, "sub"));
+      li.append(a, " ", el("span", item.number, "typed"), el("span", `At step: ${item.desk_title}`, "sub"));
       return li;
     }) : [(() => {
       const li = el("li", "Nothing on the route. ", "muted");

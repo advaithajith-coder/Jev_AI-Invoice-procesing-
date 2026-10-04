@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_tag, action_tag %}
+{% from "_macros.html" import action_tag, rail %}
+{% from "_history.html" import person_field %}
 {% set vendor_label = invoice.vendor.name if invoice.vendor else (invoice.vendor_name or invoice.original_filename) %}
 {% block title %}{{ vendor_label }} {{ invoice.invoice_number or "" }} | Jev Invoice{% endblock %}
 {% block content %}
@@ -15,8 +16,9 @@
     <p class="invoice-head__meta">
       <span>{{ invoice.invoice_number or "No invoice number read" }}</span>
       {% if invoice.invoice_date %}<span>{{ invoice.invoice_date | date }}</span>{% endif %}
-      {{ status_tag(invoice.status) }}
+      {% if is_credit_note %}<span class="tag tag--confirm">Credit note</span>{% endif %}
     </p>
+    {{ rail(invoice, big=true) }}
   </div>
   <p class="invoice-head__total">{% if invoice.total is not none %}<small>{{ invoice.currency }}</small>{{ invoice.total | money }}{% endif %}</p>
 </header>
@@ -24,6 +26,40 @@
 <p class="journey-cta"><a href="/invoices/{{ invoice.id }}/journey">See the journey: every step, model, check, time and cost</a></p>
 {% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
 {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+
+{% if invoice.hold_kind %}
+{% set disputed = invoice.hold_kind == "dispute" %}
+<section class="hold" aria-labelledby="hold-title">
+  <div class="hold__body">
+    <p class="hold__stamp" aria-hidden="true">{{ "Disputed" if disputed else "On hold" }}</p>
+    <h2 id="hold-title">{% if disputed %}Disputed with the vendor: {{ DISPUTE_CATEGORIES.get(invoice.hold_category, "query") | lower }}{% else %}On hold{% endif %}</h2>
+    <p class="hold__reason">{{ invoice.hold_reason }}</p>
+    <p class="muted small">{{ invoice.held_by }}, {{ invoice.held_at | ago }}. It will not be exported or paid until {{ "the dispute is resolved" if disputed else "someone releases it" }}.</p>
+    {% if disputed and dispute_message %}
+    <details class="hold__message" {% if request.query_params.get("notice") == "disputed" %}open{% endif %}>
+      <summary>Message for the vendor</summary>
+      <label class="sr-only" for="dispute-message">Message for the vendor</label>
+      <textarea id="dispute-message" rows="11" readonly>{{ dispute_message }}</textarea>
+      <p class="hold__copy"><button class="button" type="button" data-copy="dispute-message">Copy message</button>
+        <span class="muted small" data-copy-status role="status">Jev Invoice does not send email: paste this into your reply to the vendor.</span></p>
+    </details>
+    {% endif %}
+  </div>
+  <form method="post" action="/invoices/{{ invoice.id }}/release" class="hold__release">
+    <input type="hidden" name="_form" value="release">
+    {% if disputed %}
+    <div class="field"><label for="outcome">Outcome</label>
+      <select id="outcome" name="outcome">
+        {% for key, label in RELEASE_OUTCOMES.items() if key != "other" %}<option value="{{ key }}" {% if form.get('outcome') == key %}selected{% endif %}>{{ label | replace("Resolved: ", "") | capitalize }}</option>{% endfor %}
+      </select></div>
+    {% else %}<input type="hidden" name="outcome" value="other">{% endif %}
+    <div class="field"><label for="release-note">{{ "What the vendor agreed" if disputed else "Note" }} {% if not disputed %}<span class="muted">optional</span>{% endif %}</label>
+      <textarea id="release-note" name="note" rows="2" maxlength="2000" {% if disputed %}required{% endif %}>{{ form.get('note', '') if form.get('_form') == 'release' else '' }}</textarea></div>
+    {{ person_field(reviewer, "person-release") }}
+    <button class="button button--primary" type="submit">{{ "Resolve dispute" if disputed else "Release hold" }}</button>
+  </form>
+</section>
+{% endif %}
 
 <div class="split">
   <section class="document" aria-labelledby="doc-title">
@@ -82,9 +118,38 @@
     </section>
     {% endif %}
 
+    {% if is_credit_note %}
+    <section class="credit-note" aria-labelledby="credit-title">
+      <h2 id="credit-title">Credit note</h2>
+      {% if applied_to %}
+      <p>Applied to <a href="/invoices/{{ applied_to.invoice_id }}">invoice {{ applied_to.invoice.invoice_number or "" }}</a>:
+        {{ applied_to.amount | money(invoice.currency) }} off what is owed. {{ applied_to.recorded_by }}, {{ applied_to.created_at | ago }}.</p>
+      {% elif credit_targets %}
+      <p class="muted small">A credit note is not paid: it reduces what is owed on one of this vendor's invoices.
+        Choose the invoice it is for (it usually quotes the number).</p>
+      <form method="post" action="/invoices/{{ invoice.id }}/apply-to">
+        <fieldset class="choice-list">
+          <legend class="sr-only">Invoice to apply the credit to</legend>
+          {% for target, owed in credit_targets %}
+          <label class="choice-list__item"><input type="radio" name="target_id" value="{{ target.id }}" {% if loop.length == 1 %}checked{% endif %} required>
+            <span><b class="typed">{{ target.invoice_number or target.original_filename }}</b> {{ (target.invoice_date | date) }}
+              <span class="sub">{{ owed.balance | money(target.currency) }} still owed{% if target.po_reference %}, PO {{ target.po_reference }}{% endif %}</span></span></label>
+          {% endfor %}
+        </fieldset>
+        {{ person_field(reviewer, "person-apply") }}
+        <button class="button button--primary" type="submit">Apply {{ ((invoice.amount_due if invoice.amount_due is not none else invoice.total) or 0) | abs | money(invoice.currency) }} credit</button>
+      </form>
+      {% elif open_task %}
+      <p class="muted">There is no open invoice from this vendor to apply it to. Record it in your accounting
+        system as a vendor credit, or reject it if it is not a real credit note.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
     {% if open_task %}
     <section class="review" aria-labelledby="review-title">
       <h2 id="review-title">Your decision</h2>
+      {% if open_task.assigned_to %}<p class="muted small">Assigned to <b>{{ open_task.assigned_to }}</b>.</p>{% endif %}
       {% if review_warnings %}
       <ul class="review__warnings" aria-label="Controls this demo does not enforce">
         {% for warning in review_warnings %}<li>{{ warning }}</li>{% endfor %}
@@ -104,7 +169,9 @@
           <textarea id="note" name="note" rows="3" maxlength="2000">{{ note or "" }}</textarea>
         </div>
         <div class="review__actions">
-          {% if proposes_reject %}
+          {% if is_credit_note %}
+            <button class="button" type="submit" name="verdict" value="reject">Reject: not a valid credit note</button>
+          {% elif proposes_reject %}
             <button class="button button--primary" type="submit" name="verdict" value="reject">Reject</button>
             <button class="button" type="submit" name="verdict" value="approve">Approve anyway</button>
           {% elif decision and decision.band == "block" %}
@@ -120,26 +187,193 @@
     </section>
     {% endif %}
 
-    {% if terms %}
+    {% if not is_credit_note and invoice.total is not none %}
+    {% set cur = invoice.currency %}
     <section class="payment" aria-labelledby="payment-title">
       <h2 id="payment-title">Payment</h2>
       <dl class="fields">
-        <dt>Amount to pay</dt>
-        <dd class="strong">{{ (invoice.amount_due if invoice.amount_due is not none else invoice.total) | money(invoice.currency) }}{% if invoice.amount_paid %} <span class="muted">after {{ invoice.amount_paid | money(invoice.currency) }} already paid</span>{% endif %}</dd>
+        <dt>Billed</dt>
+        <dd>{{ balance.billed | money(cur) }}{% if invoice.amount_paid %} <span class="muted">after a {{ invoice.amount_paid | money(cur) }} deposit</span>{% endif %}</dd>
+        {% for credit in invoice.credits %}
+        <dt>Credit {{ credit.number }}</dt>
+        <dd>-{{ credit.amount | money(cur) }}{% if credit.credit_note_id %} <a class="small" href="/invoices/{{ credit.credit_note_id }}">credit note</a>{% endif %}{% if credit.reason %} <span class="muted">{{ credit.reason }}</span>{% endif %}</dd>
+        {% endfor %}
+        {% if balance.withheld %}
+        <dt>Short-pay</dt>
+        <dd>-{{ balance.withheld | money(cur) }} <span class="muted">{{ invoice.withheld_reason }}</span></dd>
+        {% endif %}
+        {% if balance.paid %}<dt>Paid</dt><dd>-{{ balance.paid | money(cur) }}</dd>{% endif %}
+        {% if balance.discount %}<dt>Discount kept</dt><dd>-{{ balance.discount | money(cur) }}</dd>{% endif %}
+        <dt>{{ "Balance to pay" if balance.settled else "Amount to pay" }}</dt>
+        <dd class="strong">{{ balance.balance | money(cur) }}{% if balance.state == "paid" %} <span class="tag tag--ok">paid in full</span>{% endif %}</dd>
+        {% if terms and balance.balance %}
         <dt>Pay by</dt>
         <dd>{{ terms.pay_by | date }} <span class="muted">(agreed terms: {{ terms.label }})</span></dd>
         {% if terms.asks_earlier %}
         <dt>Invoice asks for</dt>
         <dd>{{ terms.printed_due | date }} <span class="tag tag--human">earlier than the agreed terms</span></dd>
         {% endif %}
+        {% endif %}
       </dl>
-      {% if terms.discount_by %}
+      {% if terms and terms.discount_by and balance.balance and not balance.discount %}
       {% set open = terms.discount_by >= today %}
       <p class="discount{{ '' if open else ' discount--missed' }}">
         <b>{{ terms.discount_pct.normalize() }}% early-payment discount</b>
-        {%- if terms.discount_amount is not none %} ({{ terms.discount_amount | money(invoice.currency) }}){% endif %}
+        {%- if terms.discount_amount is not none %} ({{ terms.discount_amount | money(cur) }}){% endif %}
         {% if open %}if paid by {{ terms.discount_by | date }}.{% else %}missed: it ended {{ terms.discount_by | date }}.{% endif %}
       </p>
+      {% endif %}
+
+      {% if invoice.payments %}
+      <div class="table-wrap">
+        <table class="ledger ledger--compact payments">
+          <caption class="sr-only">Payments recorded</caption>
+          <thead><tr><th scope="col">Paid on</th><th scope="col">How</th><th scope="col" class="num">Amount</th><th scope="col">Recorded by</th></tr></thead>
+          <tbody>
+            {% for p in invoice.payments %}
+            <tr><td>{{ p.paid_on | date }}</td>
+              <td>{{ PAYMENT_METHODS.get(p.method, p.method) }}{% if p.reference %} <span class="typed small">{{ p.reference }}</span>{% endif %}</td>
+              <td class="num">{{ p.amount | money }}{% if p.discount_taken %}<span class="sub">+ {{ p.discount_taken | money }} discount</span>{% endif %}</td>
+              <td class="muted">{{ p.recorded_by }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if payable and balance.balance %}
+        {% if invoice.hold_kind %}
+        <p class="muted small">Payment is blocked while the invoice is {{ "disputed" if invoice.hold_kind == "dispute" else "on hold" }}.</p>
+        {% else %}
+        {% set f = form if form.get('_form') == 'payment' else {} %}
+        <details class="action" {% if f %}open{% endif %}>
+          <summary>Record a payment</summary>
+          <form method="post" action="/invoices/{{ invoice.id }}/payment" class="action__form" data-payment>
+            <input type="hidden" name="_form" value="payment">
+            <div class="field-row">
+              <div class="field"><label for="paid-on">Paid on</label>
+                <input id="paid-on" name="paid_on" type="date" value="{{ f.get('paid_on', today.isoformat()) }}" max="{{ today.isoformat() }}" required></div>
+              <div class="field"><label for="pay-amount">Amount paid <span class="muted">{{ cur }}</span></label>
+                <input id="pay-amount" name="amount" type="text" inputmode="decimal" value="{{ f.get('amount', '%.2f' | format(plan.amount)) }}" required></div>
+            </div>
+            {% if plan.discount %}
+            <div class="field field--check"><label><input name="take_discount" type="checkbox" value="1" {% if not f or f.get('take_discount') %}checked{% endif %} data-discount="{{ '%.2f' | format(plan.discount) }}" data-full="{{ '%.2f' | format(balance.balance) }}">
+              Keep the {{ plan.discount | money(cur) }} early-payment discount (paying by {{ terms.discount_by | date }})</label></div>
+            {% endif %}
+            <div class="field-row">
+              <div class="field"><label for="pay-method">How</label>
+                <select id="pay-method" name="method">
+                  {% for key, label in PAYMENT_METHODS.items() %}<option value="{{ key }}" {% if f.get('method') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select></div>
+              <div class="field"><label for="pay-ref">Reference <span class="muted">check or transfer number</span></label>
+                <input id="pay-ref" name="reference" type="text" maxlength="100" value="{{ f.get('reference', '') }}"></div>
+            </div>
+            {{ person_field(reviewer, "person-payment") }}
+            <button class="button button--primary" type="submit">Record payment</button>
+            <p class="muted small">Record a payment once your bank has sent it. The money itself moves in your bank or accounting system.</p>
+          </form>
+        </details>
+        {% endif %}
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if not is_credit_note and invoice.status in ("extracted", "pending_review", "approved", "exported") and (balance.balance or balance.withheld or invoice.hold_kind) %}
+    <section class="actions" aria-labelledby="actions-title">
+      <h2 id="actions-title">Exceptions</h2>
+      <p class="muted small">When something is wrong, or you are waiting on someone. Each action goes into the history with your name.</p>
+      {% set open_form = form.get('_form') %}
+      {% if not invoice.hold_kind %}
+      {% set f = form if open_form == 'hold' else {} %}
+      <details class="action" {% if f %}open{% endif %}>
+        <summary>Put on hold</summary>
+        <form method="post" action="/invoices/{{ invoice.id }}/hold" class="action__form">
+          <input type="hidden" name="_form" value="hold"><input type="hidden" name="kind" value="hold">
+          <p class="muted small">Stops export and payment until released: for example while you wait for a delivery note or a budget owner.</p>
+          <div class="field"><label for="hold-reason">Why</label>
+            <textarea id="hold-reason" name="reason" rows="2" maxlength="2000" required>{{ f.get('reason', '') }}</textarea></div>
+          {{ person_field(reviewer, "person-hold") }}
+          <button class="button" type="submit">Put on hold</button>
+        </form>
+      </details>
+      {% set f = form if open_form == 'dispute' else {} %}
+      <details class="action" {% if f %}open{% endif %}>
+        <summary>Dispute with the vendor</summary>
+        <form method="post" action="/invoices/{{ invoice.id }}/hold" class="action__form">
+          <input type="hidden" name="_form" value="dispute"><input type="hidden" name="kind" value="dispute">
+          <p class="muted small">Holds the invoice and drafts a message for you to send the vendor.</p>
+          <div class="field"><label for="dispute-category">What is wrong</label>
+            <select id="dispute-category" name="category" required>
+              {% for key, label in DISPUTE_CATEGORIES.items() %}<option value="{{ key }}" {% if f.get('category') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select></div>
+          <div class="field"><label for="dispute-reason">Details <span class="muted">the vendor will read this</span></label>
+            <textarea id="dispute-reason" name="reason" rows="3" maxlength="2000" required placeholder="Line 2 is billed at $48.00 a case; PO-1003 agreed $45.00.">{{ f.get('reason', '') }}</textarea></div>
+          {{ person_field(reviewer, "person-dispute") }}
+          <button class="button" type="submit">Open dispute</button>
+        </form>
+      </details>
+      {% endif %}
+
+      {% if invoice.status != "extracted" %}
+      {% set f = form if open_form == 'short_pay' else {} %}
+      <details class="action" {% if f %}open{% endif %}>
+        <summary>Short-pay{% if invoice.withheld_amount %} <span class="tag tag--human">{{ invoice.withheld_amount | money }} withheld</span>{% endif %}</summary>
+        <form method="post" action="/invoices/{{ invoice.id }}/short-pay" class="action__form">
+          <input type="hidden" name="_form" value="short_pay">
+          <p class="muted small">Pay less than billed, for example for damaged or missing goods. If the vendor later sends a credit note for it, applying the credit settles the withheld part. Enter 0 to remove a short-pay.</p>
+          <div class="field"><label for="short-amount">Amount to withhold <span class="muted">{{ invoice.currency }}</span></label>
+            <input id="short-amount" name="amount" type="text" inputmode="decimal" value="{{ f.get('amount', invoice.withheld_amount or '') }}" required></div>
+          <div class="field"><label for="short-reason">Why</label>
+            <textarea id="short-reason" name="reason" rows="2" maxlength="2000">{{ f.get('reason', invoice.withheld_reason or '') }}</textarea></div>
+          {{ person_field(reviewer, "person-short") }}
+          <button class="button" type="submit">Save short-pay</button>
+        </form>
+      </details>
+
+      {% set f = form if open_form == 'credit' else {} %}
+      <details class="action" {% if f or credit_notes %}open{% endif %}>
+        <summary>Apply a credit note{% if credit_notes %} <span class="tag tag--confirm">{{ credit_notes | length }} from this vendor waiting</span>{% endif %}</summary>
+        <form method="post" action="/invoices/{{ invoice.id }}/credit" class="action__form">
+          <input type="hidden" name="_form" value="credit">
+          {% if credit_notes %}
+          <fieldset class="choice-list">
+            <legend>Uploaded credit notes</legend>
+            {% for cn in credit_notes %}
+            <label class="choice-list__item"><input type="radio" name="credit_note_id" value="{{ cn.id }}">
+              <span><b class="typed">{{ cn.invoice_number or cn.original_filename }}</b> {{ cn.invoice_date | date }}
+                <span class="sub">{{ (cn.total or 0) | abs | money(cn.currency) }}{% if cn.description %}: {{ cn.description }}{% endif %}</span></span></label>
+            {% endfor %}
+            <label class="choice-list__item"><input type="radio" name="credit_note_id" value="" checked><span>Enter one by hand instead</span></label>
+          </fieldset>
+          {% endif %}
+          <div class="field-row">
+            <div class="field"><label for="credit-number">Credit note number</label>
+              <input id="credit-number" name="number" type="text" maxlength="100" value="{{ f.get('number', '') }}"></div>
+            <div class="field"><label for="credit-amount">Amount <span class="muted">{{ invoice.currency }}</span></label>
+              <input id="credit-amount" name="amount" type="text" inputmode="decimal" value="{{ f.get('amount', '') }}"></div>
+          </div>
+          <div class="field"><label for="credit-reason">Reason <span class="muted">optional</span></label>
+            <input id="credit-reason" name="reason" type="text" maxlength="2000" value="{{ f.get('reason', '') }}"></div>
+          {{ person_field(reviewer, "person-credit") }}
+          <button class="button" type="submit">Apply credit</button>
+        </form>
+      </details>
+      {% endif %}
+
+      {% if open_task %}
+      {% set f = form if open_form == 'assign' else {} %}
+      <details class="action" {% if f %}open{% endif %}>
+        <summary>Reassign the review{% if open_task.assigned_to %} <span class="muted small">now: {{ open_task.assigned_to }}</span>{% endif %}</summary>
+        <form method="post" action="/invoices/{{ invoice.id }}/assign" class="action__form">
+          <input type="hidden" name="_form" value="assign">
+          <div class="field"><label for="assignee">Assign to <span class="muted">leave empty to return it to the queue</span></label>
+            <input id="assignee" name="assignee" type="text" maxlength="100" value="{{ f.get('assignee', '') }}" placeholder="Who should decide"></div>
+          <div class="field"><label for="assign-note">Note for them <span class="muted">optional</span></label>
+            <textarea id="assign-note" name="note" rows="2" maxlength="2000">{{ f.get('note', '') }}</textarea></div>
+          {{ person_field(reviewer, "person-assign") }}
+          <button class="button" type="submit">Reassign</button>
+        </form>
+      </details>
       {% endif %}
     </section>
     {% endif %}
@@ -175,22 +409,56 @@
       </dl>
 
       {% if invoice.lines %}
+      {% set sources = {"po": ("from the PO", "ok"), "ai": ("chosen by Jev", "confirm"), "vendor": ("vendor default", "muted"),
+                        "suspense": ("needs coding", "human"), "person": ("set by a person", "ok")} %}
+      {% set editable = invoice.status != "exported" %}
+      <form method="post" action="/invoices/{{ invoice.id }}/accounts" class="coding-form">
       <div class="table-wrap">
         <table class="ledger ledger--compact">
-          <caption class="sr-only">Invoice lines</caption>
-          <thead><tr><th scope="col">Line</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th></tr></thead>
+          <caption class="sr-only">Invoice lines and the account each is recorded in</caption>
+          <thead><tr><th scope="col">Line</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th><th scope="col">Account</th></tr></thead>
           <tbody>
             {% for line in invoice.lines %}
+            {% set how, tone = sources.get(line.gl_source, ("not coded", "muted")) %}
             <tr>
               <td>{{ line.description }}</td>
               <td class="num">{{ line.quantity | qty }}</td>
               <td class="num">{{ line.unit_price | money }}</td>
               <td class="num">{{ line.amount | money }}</td>
+              <td class="coding-cell">
+                {% if editable %}
+                <label class="sr-only" for="account-{{ line.id }}">Account for {{ line.description }}</label>
+                <select id="account-{{ line.id }}" name="account_{{ line.id }}">
+                  {% if not line.gl_account_code %}<option value="">Choose an account</option>{% endif %}
+                  {% for account in gl_accounts %}<option value="{{ account.code }}" {% if account.code == line.gl_account_code %}selected{% endif %}>{{ account.code }} {{ account.name }}</option>{% endfor %}
+                </select>
+                {% else %}<span class="typed">{{ line.gl_account_code or "" }}</span>{% endif %}
+                <span class="sub"><span class="tag tag--{{ tone }}">{{ how }}</span>{% if line.gl_confidence is not none and line.gl_source in ("ai", "vendor", "suspense") %} Jev {{ (line.gl_confidence * 100) | round | int }}% sure{% endif %}</span>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      {% if editable %}
+      <div class="coding-form__save">
+        <div class="field"><label for="person-coding">Your name</label>
+          <input id="person-coding" name="person" type="text" maxlength="100" autocomplete="name" value="{{ reviewer }}" required></div>
+        <button class="button" type="submit">Save accounts</button>
+      </div>
+      {% endif %}
+      </form>
+      {% if uncoded %}
+      <form method="post" action="/invoices/{{ invoice.id }}/code" class="code-jev">
+        <input type="hidden" name="_form" value="code">
+        <p class="muted small">Some lines have no account, because this invoice was read before account coding existed.
+          Jev can choose them now, the same way it codes new invoices.</p>
+        <div class="coding-form__save">
+          {{ person_field(reviewer, "person-code") }}
+          <button class="button" type="submit">Code with Jev</button>
+        </div>
+      </form>
+      {% endif %}
       {% endif %}
     </section>
 
@@ -241,13 +509,25 @@
     {% endif %}
 
     <section aria-labelledby="history-title">
-      <h2 id="history-title">History</h2>
+      <h2 id="history-title">Comments and history</h2>
+      {% set f = form if form.get('_form') == 'comment' else {} %}
+      <form method="post" action="/invoices/{{ invoice.id }}/comment" class="comment-form">
+        <input type="hidden" name="_form" value="comment">
+        <div class="field"><label for="comment-text">Add a comment <span class="muted">for colleagues; it cannot be edited later</span></label>
+          <textarea id="comment-text" name="text" rows="2" maxlength="2000" required>{{ f.get('text', '') }}</textarea></div>
+        <div class="coding-form__save">
+          {{ person_field(reviewer, "person-comment") }}
+          <button class="button" type="submit">Add comment</button>
+        </div>
+      </form>
       <ol class="timeline">
         {% for event in events %}
-        <li>
+        <li class="{{ 'timeline__item--comment' if event.action == 'invoice.commented' }}">
           <span class="timeline__when muted" title="{{ event.occurred_at }}">{{ event.occurred_at | ago }}</span>
           <span class="timeline__what">{{ AUDIT.get(event.action, event.action) }}</span>
           <span class="timeline__who muted">{{ event.actor }}</span>
+          {% set detail = event_detail(event.action, event.data) %}
+          {% if detail %}<p class="timeline__detail">{{ detail }}</p>{% endif %}
           {% if event.data.get("note") %}<p class="timeline__note">“{{ event.data["note"] }}”</p>{% endif %}
         </li>
         {% endfor %}

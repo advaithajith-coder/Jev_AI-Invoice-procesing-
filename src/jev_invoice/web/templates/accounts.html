@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "_history.html" import person_field %}
+{% block title %}Chart of accounts | Jev Invoice{% endblock %}
+{% block content %}
+{% set type_names = {"expense": "Expense", "cost_of_sales": "Cost of sales", "asset": "Asset"} %}
+<div class="section-head">
+  <h1>Chart of accounts <span class="count">{{ usage | length }}</span></h1>
+</div>
+<p class="lede">The accounts invoice lines are recorded in. Jev codes each line by choosing one of these, so
+  write each description as what belongs in it: it is the text Jev reads. Lines from a PO keep the PO's
+  account; when Jev is not sure, the vendor's default account is used.</p>
+
+{% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+
+<div class="table-wrap">
+  <table class="ledger ledger--stack">
+    <thead><tr>
+      <th scope="col">Account</th><th scope="col">Type</th><th scope="col">What belongs here</th>
+      <th scope="col" class="num">Approved lines</th><th scope="col" class="num">Amount</th>
+    </tr></thead>
+    <tbody>
+      {% for item in usage %}{% set a = item.account %}
+      <tr>
+        <td class="c-main"><a class="rowlink" href="/accounts/{{ a.code }}"><span class="typed">{{ a.code }}</span> {{ a.name }}</a>
+          {% if not a.is_active %}<span class="sub"><span class="tag tag--muted">inactive</span></span>{% endif %}</td>
+        <td class="c-ref">{{ type_names.get(a.account_type, a.account_type) }}</td>
+        <td class="c-wide account-desc">{{ a.description }}</td>
+        <td class="c-when num">{{ item.lines }}</td>
+        <td class="c-total num">{{ item.amount | money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="two-col">
+  <section class="panel" aria-labelledby="add-title">
+    <h2 id="add-title">Add an account</h2>
+    {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+    {% set f = form or {} %}
+    <form method="post" action="/accounts">
+      <div class="field-row">
+        <div class="field"><label for="code">Code</label>
+          <input id="code" name="code" type="text" maxlength="20" value="{{ f.get('code', '') }}" placeholder="6250" required></div>
+        <div class="field"><label for="account_type">Type</label>
+          <select id="account_type" name="account_type">
+            {% for t in types %}<option value="{{ t }}" {% if f.get('account_type', 'expense') == t %}selected{% endif %}>{{ type_names.get(t, t) }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div class="field"><label for="name">Name</label>
+        <input id="name" name="name" type="text" maxlength="120" value="{{ f.get('name', '') }}" placeholder="Cleaning and janitorial" required></div>
+      <div class="field"><label for="description">What belongs here <span class="muted">Jev reads this</span></label>
+        <textarea id="description" name="description" rows="3" maxlength="500" required placeholder="Office cleaning contracts, janitorial supplies, window cleaning and waste collection.">{{ f.get('description', '') }}</textarea></div>
+      {{ person_field(person, "person-account") }}
+      <button class="button button--primary" type="submit">Add account</button>
+    </form>
+  </section>
+  <section aria-labelledby="tips-title">
+    <h2 id="tips-title">Writing good descriptions</h2>
+    <ul class="plain-list">
+      <li>Name the things that belong here, the way invoices describe them: "toner, paper, pens".</li>
+      <li>Say what does not, when two accounts are close: "equipment under $2,500; above that, Computer Equipment".</li>
+      <li>Deactivate an account you no longer use instead of deleting it: past invoices still refer to it.</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

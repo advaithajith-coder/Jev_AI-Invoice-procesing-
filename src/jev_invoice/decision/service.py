@@ -57,6 +57,11 @@ class DecisionService:
     def jev_configured(self) -> bool:
         return self._jev is not None
 
+    @property
+    def jev_client(self) -> JevClient | None:
+        """The Jev connection, shared with other closed questions (such as account coding)."""
+        return self._jev
+
     def expected_wait_seconds(self) -> float:
         return self._jev.expected_wait_seconds() if self._jev else 0.0
 

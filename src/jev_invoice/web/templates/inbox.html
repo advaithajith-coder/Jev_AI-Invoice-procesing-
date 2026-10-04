@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_tag, action_tag %}
+{% from "_macros.html" import action_tag, rail %}
 {% block title %}Inbox | Jev Invoice{% endblock %}
 {% block content %}
 <div class="intake">
@@ -61,7 +61,7 @@
           <th scope="col">Invoice</th>
           <th scope="col">Received</th>
           <th scope="col" class="num">Total</th>
-          <th scope="col">Status</th>
+          <th scope="col">Progress</th>
           <th scope="col">Decision</th>
         </tr>
       </thead>
@@ -77,7 +77,7 @@
           <td class="c-ref">{{ invoice.invoice_number or "" }}</td>
           <td class="c-when muted" title="{{ invoice.received_at }}">{{ invoice.received_at | ago }}</td>
           <td class="c-total num">{{ invoice.total | money(invoice.currency) }}</td>
-          <td class="c-tag">{% if invoice.status in ("received", "extracted") %}<a class="tag tag--confirm" href="/invoices/{{ invoice.id }}/journey" data-processing>Processing…</a>{% else %}{{ status_tag(invoice.status) }}{% endif %}</td>
+          <td class="c-tag">{% if invoice.status in ("received", "extracted") %}<a class="rail-link" href="/invoices/{{ invoice.id }}/journey" data-processing>{{ rail(invoice) }}</a>{% else %}{{ rail(invoice) }}{% endif %}</td>
           <td class="c-tag">{% if decision %}{{ action_tag(decision.action) }}{% else %}<span class="muted">{{ invoice.error_message or "" }}</span>{% endif %}
             <a class="journey-link" href="/invoices/{{ invoice.id }}/journey">Journey</a></td>
         </tr>

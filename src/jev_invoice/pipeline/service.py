@@ -15,6 +15,7 @@ The same file uploaded twice is recognised by its SHA-256 and processed only onc
 
 import hashlib
 import uuid
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -27,10 +28,19 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from jev_invoice.coding.service import QUESTION_SET_VERSION as CODING_QUESTION_SET
+from jev_invoice.coding.service import CodingService
 from jev_invoice.config import Settings
 from jev_invoice.core import audit
 from jev_invoice.core.errors import AppError
-from jev_invoice.db.models import Decision, Invoice, InvoiceLine, PipelineStep, ReviewTask
+from jev_invoice.db.models import (
+    Decision,
+    GLAccount,
+    Invoice,
+    InvoiceLine,
+    PipelineStep,
+    ReviewTask,
+)
 from jev_invoice.decision.policy import ACTION_PRIORITY, POLICY_VERSION
 from jev_invoice.decision.questions import QUESTION_SET_VERSION, build_questions
 from jev_invoice.decision.service import DecisionService, Judgment
@@ -50,6 +60,12 @@ from jev_invoice.pipeline.steps import StepRecorder
 log = structlog.get_logger(__name__)
 
 _TEXT_PREVIEW_CHARS = 4000
+SOURCE_WORDS = {
+    "po": "from the PO",
+    "ai": "chosen by Jev",
+    "vendor": "vendor default",
+    "suspense": "need coding",
+}
 RECEIVE_STEPS = ("received", "read")
 # Statuses an invoice can be left in if processing is interrupted (resumed on startup).
 IN_PROGRESS = (InvoiceStatus.RECEIVED, InvoiceStatus.EXTRACTED)
@@ -69,6 +85,8 @@ def invoice_query() -> Select[Invoice]:
         selectinload(Invoice.vendor),
         selectinload(Invoice.purchase_order),
         selectinload(Invoice.steps),
+        selectinload(Invoice.payments),
+        selectinload(Invoice.credits),
     )
 
 
@@ -239,6 +257,7 @@ class InvoicePipeline:
         findings.extend(match.findings)
 
         judgment = await self._judge(text, steps)
+        await self._code(invoice, match, steps)
 
         async with steps.run("decision") as step:
             outcome = self._decisions.decide_from(findings, judgment)
@@ -342,6 +361,59 @@ class InvoicePipeline:
                 "document_characters": len(text),
             }
         return result
+
+    async def _code(self, invoice: Invoice, match: MatchResult, steps: StepRecorder) -> None:
+        """Code each line to an account: the PO's, Jev's confident choice, or a fallback."""
+        if not invoice.lines:
+            await steps.skip(
+                "coding", "No lines to code: the whole invoice uses the default account"
+            )
+            return
+        async with steps.run("coding") as step:
+            coding = await CodingService(
+                self._session,
+                self._decisions.jev_client,
+                suspense_account=self._settings.export_suspense_account,
+                min_confidence=self._settings.coding_min_confidence,
+            ).code(
+                invoice.lines,
+                vendor=match.vendor,
+                purchase_order=match.purchase_order,
+                invoice_description=invoice.description,
+            )
+            names = dict(
+                (row.code, row.name)
+                for row in await self._session.execute(select(GLAccount.code, GLAccount.name))
+            )
+            by_source = Counter(line.source for line in coding.lines)
+            step.summary = ", ".join(
+                f"{count} {SOURCE_WORDS[source]}" for source, count in by_source.items()
+            )
+            step.details = {
+                "model": coding.model,
+                "jev_status": coding.jev_status,
+                "question_set_version": CODING_QUESTION_SET,
+                "latency_ms": coding.latency_ms,
+                "cost_usd": coding.cost_usd,
+                "min_confidence": self._settings.coding_min_confidence,
+                "questions": coding.questions,
+                "lines": [
+                    {
+                        "line_no": line.line_no,
+                        "description": line.description,
+                        "amount": line.amount,
+                        "account": line.account,
+                        "account_name": names.get(line.account, line.account),
+                        "source": line.source,
+                        "confidence": line.confidence,
+                        "suggestion": line.suggestion,
+                        "suggestion_name": names.get(line.suggestion) if line.suggestion else None,
+                    }
+                    for line in coding.lines
+                ],
+            }
+            if by_source.get("suspense"):
+                step.status = "warning"
 
     async def _judge(self, text: str, steps: StepRecorder) -> Judgment:
         async with steps.run("judgment") as step:

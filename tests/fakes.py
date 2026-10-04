@@ -171,20 +171,60 @@ def clean_jev_answers(**overrides: Any) -> JevAnswers:
 
 
 class FakeJevServer:
-    """Scripted responses for /v1/systemone; records every request body."""
+    """Scripted responses for /v1/systemone; records every request body.
 
-    def __init__(self, *responses: httpx2.Response | dict[str, Any]) -> None:
+    Account-coding requests (questions named line_1, line_2, ...) are answered from
+    `coding` ({line question: (account code, confidence)}) when given, else with a
+    deliberately unsure pick (30%), so the vendor's default account is used, as before.
+    """
+
+    def __init__(
+        self,
+        *responses: httpx2.Response | dict[str, Any],
+        coding: dict[str, tuple[str, float]] | None = None,
+    ) -> None:
         self._responses = list(responses)
+        self._coding = coding or {}
         self.requests: list[dict[str, Any]] = []
 
     def __call__(self, request: httpx2.Request) -> httpx2.Response:
-        self.requests.append(json.loads(request.content))
+        body = json.loads(request.content)
+        self.requests.append(body)
+        questions = body.get("questions") or {}
+        if questions and all(name.startswith("line_") for name in questions):
+            return httpx2.Response(200, json=response_body(self._coding_answers(questions)))
         if not self._responses:
             raise AssertionError("FakeJevServer received more requests than scripted")
         item = self._responses.pop(0)
         if isinstance(item, httpx2.Response):
             return item
         return httpx2.Response(200, json=response_body(item))
+
+    def _coding_answers(self, questions: dict[str, Any]) -> dict[str, Any]:
+        answers = {}
+        for name, question in questions.items():
+            options = list(question.get("criteria") or {})
+            code, confidence = self._coding.get(name, (options[0] if options else "", 0.3))
+            answers[name] = {
+                "type": "choice",
+                "choice": code,
+                "confidence": confidence,
+                "probabilities": {
+                    option: confidence
+                    if option == code
+                    else (1 - confidence) / max(len(options) - 1, 1)
+                    for option in options
+                },
+            }
+        return answers
+
+    @property
+    def coding_requests(self) -> list[dict[str, Any]]:
+        return [
+            r
+            for r in self.requests
+            if all(n.startswith("line_") for n in r.get("questions") or {"x": 0})
+        ]
 
 
 def error_response(status: int, message: str = "error") -> httpx2.Response:
@@ -301,13 +341,14 @@ def install_fakes(
     jev: list[Any] | None = None,
     jev_configured: bool = True,
     vision: list[Any] | None = None,
+    coding: dict[str, tuple[str, float]] | None = None,
 ) -> tuple[FakeLLMProvider, FakeJevServer]:
     """Replace the running app's extraction, vision, and decision services with fakes.
 
     `vision` scripts the transcription model's replies (one per page); None disables it.
     """
     provider = FakeLLMProvider(*llm_responses)
-    server = FakeJevServer(*(jev or []))
+    server = FakeJevServer(*(jev or []), coding=coding)
     app.state.extraction = ExtractionService(LLMClient(provider, settings))
     client = make_jev_client(server, settings) if jev_configured else None
     app.state.decisions = DecisionService(client, settings)

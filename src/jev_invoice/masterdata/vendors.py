@@ -51,9 +51,6 @@ class VendorFields(BaseModel):
     early_pay_days: int | None = Field(default=None, ge=1, le=365)
     # False for vendors billed without a PO (rent, utilities, legal fees, subscriptions).
     po_required: bool = True
-    # US tax paperwork, recorded for year-end 1099 reporting.
-    w9_on_file: bool = False
-    is_1099: bool = False
     default_gl_account_code: str
     email_domain: Optional = None
     tax_id: Optional = None
@@ -121,8 +118,6 @@ class VendorService:
             early_pay_discount_pct=data.early_pay_discount_pct,
             early_pay_days=data.early_pay_days,
             po_required=data.po_required,
-            w9_on_file=data.w9_on_file,
-            is_1099=data.is_1099,
             default_gl_account_code=data.default_gl_account_code,
             email_domain=data.email_domain,
             tax_id=data.tax_id,

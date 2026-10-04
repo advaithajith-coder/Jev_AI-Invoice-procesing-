@@ -24,9 +24,10 @@ from jev_invoice.api.dependencies import (
 )
 from jev_invoice.core.errors import AppError
 from jev_invoice.db.models import AuditEvent, Invoice
-from jev_invoice.domain.enums import PurchaseOrderStatus, VendorStatus
+from jev_invoice.domain.enums import GLAccountType, PurchaseOrderStatus, VendorStatus
 from jev_invoice.export.formats import FORMATS
 from jev_invoice.export.service import ExportService
+from jev_invoice.masterdata.accounts import AccountCreate, AccountFields, AccountService
 from jev_invoice.masterdata.importing import (
     MAX_BYTES,
     PO_TEMPLATE,
@@ -63,6 +64,8 @@ NOTICES = {
     "delivery": "Delivery recorded.",
     "po_closed": "Purchase order closed.",
     "po_cancelled": "Purchase order cancelled.",
+    "account_created": "Account added. Jev can now code invoice lines to it.",
+    "account_updated": "Account saved.",
     "settings_saved": "Saved. Invoices processed from now on use the new limit.",
 }
 
@@ -172,8 +175,6 @@ async def add_vendor(
     early_pay_discount_pct: Annotated[str, Form()] = "",
     early_pay_days: Annotated[str, Form()] = "",
     po_required: Annotated[str, Form()] = "",
-    w9_on_file: Annotated[str, Form()] = "",
-    is_1099: Annotated[str, Form()] = "",
     default_gl_account_code: Annotated[str, Form()] = "",
     bank_account: Annotated[str, Form()] = "",
     email_domain: Annotated[str, Form()] = "",
@@ -189,8 +190,6 @@ async def add_vendor(
             early_pay_discount_pct=_decimal_or_none(early_pay_discount_pct),
             early_pay_days=int(early_pay_days) if early_pay_days.strip() else None,
             po_required=po_required == "on",
-            w9_on_file=w9_on_file == "on",
-            is_1099=is_1099 == "on",
             default_gl_account_code=default_gl_account_code,
             bank_account=bank_account or None,
             email_domain=email_domain or None,
@@ -210,8 +209,6 @@ async def add_vendor(
                 "early_pay_discount_pct": early_pay_discount_pct,
                 "early_pay_days": early_pay_days,
                 "po_required": po_required == "on",
-                "w9_on_file": w9_on_file == "on",
-                "is_1099": is_1099 == "on",
                 "default_gl_account_code": default_gl_account_code,
                 "email_domain": email_domain,
                 "tax_id": tax_id,
@@ -282,8 +279,6 @@ async def save_vendor(
     early_pay_discount_pct: Annotated[str, Form()] = "",
     early_pay_days: Annotated[str, Form()] = "",
     po_required: Annotated[str, Form()] = "",
-    w9_on_file: Annotated[str, Form()] = "",
-    is_1099: Annotated[str, Form()] = "",
     default_gl_account_code: Annotated[str, Form()] = "",
     email_domain: Annotated[str, Form()] = "",
     tax_id: Annotated[str, Form()] = "",
@@ -299,8 +294,6 @@ async def save_vendor(
             early_pay_discount_pct=_decimal_or_none(early_pay_discount_pct),
             early_pay_days=int(early_pay_days) if early_pay_days.strip() else None,
             po_required=po_required == "on",
-            w9_on_file=w9_on_file == "on",
-            is_1099=is_1099 == "on",
             default_gl_account_code=default_gl_account_code,
             email_domain=email_domain or None,
             tax_id=tax_id or None,
@@ -534,6 +527,107 @@ async def change_po_status(
         context.update(error=exc.message, person=person)
         return _render(request, "purchase_order.html", context, max(exc.status_code, 400))
     return _redirect(f"/purchase-orders/{po_id}?notice=po_{status}", actor)
+
+
+# ── Chart of accounts ─────────────────────────────────────────────────────────
+
+
+async def _accounts_context(session: SessionDep) -> dict[str, Any]:
+    usage = await AccountService(session).list_with_usage()
+    return {
+        "usage": usage,
+        "types": list(GLAccountType),
+        "total": sum((item.amount for item in usage), Decimal(0)),
+        "nav": "accounts",
+    }
+
+
+@router.get("/accounts", response_class=HTMLResponse)
+async def accounts_page(request: Request, session: SessionDep) -> HTMLResponse:
+    return _render(request, "accounts.html", await _accounts_context(session))
+
+
+@router.post("/accounts", response_model=None)
+async def add_account(
+    request: Request,
+    session: SessionDep,
+    code: Annotated[str, Form()] = "",
+    name: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    account_type: Annotated[str, Form()] = "expense",
+    person: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        actor = _person(person)
+        data = AccountCreate(
+            code=code, name=name, description=description, account_type=account_type
+        )
+        account = await AccountService(session).create(data, actor=actor)
+    except (AppError, ValidationError, ValueError) as exc:
+        await session.rollback()
+        context = await _accounts_context(session)
+        context.update(
+            error=_message(exc),
+            person=person,
+            form={
+                "code": code,
+                "name": name,
+                "description": description,
+                "account_type": account_type,
+            },
+        )
+        return _render(request, "accounts.html", context, 400)
+    return _redirect(f"/accounts/{account.code}?notice=account_created", actor)
+
+
+async def _account_context(session: SessionDep, code: str) -> dict[str, Any]:
+    service = AccountService(session)
+    return {
+        "account": await service.get(code),
+        "lines": await service.recent_lines(code),
+        "types": list(GLAccountType),
+        "events": list(
+            await session.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.entity_type == "gl_account", AuditEvent.entity_id == code)
+                .order_by(AuditEvent.id)
+            )
+        ),
+        "nav": "accounts",
+    }
+
+
+@router.get("/accounts/{code}", response_class=HTMLResponse)
+async def account_page(request: Request, code: str, session: SessionDep) -> HTMLResponse:
+    return _render(request, "account.html", await _account_context(session, code))
+
+
+@router.post("/accounts/{code}", response_model=None)
+async def save_account(
+    request: Request,
+    code: str,
+    session: SessionDep,
+    name: Annotated[str, Form()] = "",
+    description: Annotated[str, Form()] = "",
+    account_type: Annotated[str, Form()] = "expense",
+    is_active: Annotated[str, Form()] = "",
+    person: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        actor = _person(person)
+        data = AccountFields(
+            name=name,
+            description=description,
+            account_type=account_type,
+            is_active=is_active == "on",
+        )
+        await AccountService(session).update(code, data, actor=actor)
+    except (AppError, ValidationError, ValueError) as exc:
+        await session.rollback()
+        context = await _account_context(session, code)
+        context.update(error=_message(exc), person=person)
+        return _render(request, "account.html", context, 400)
+    return _redirect(f"/accounts/{code}?notice=account_updated", actor)
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────

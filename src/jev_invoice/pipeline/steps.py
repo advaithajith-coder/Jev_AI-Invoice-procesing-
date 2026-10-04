@@ -31,8 +31,9 @@ STEPS: dict[str, tuple[int, str]] = {
     "document_checks": (5, "Document checks"),
     "master_data": (6, "Vendor and PO checks"),
     "judgment": (7, "Jev judgment"),
-    "decision": (8, "Decision"),
-    "outcome": (9, "Outcome"),
+    "coding": (8, "Account coding"),
+    "decision": (9, "Decision"),
+    "outcome": (10, "Outcome"),
 }
 
 

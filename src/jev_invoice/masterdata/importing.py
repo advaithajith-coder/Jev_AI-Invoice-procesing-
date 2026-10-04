@@ -40,8 +40,6 @@ VENDOR_COLUMNS = (
     "po_required",
     "early_pay_discount_pct",
     "early_pay_days",
-    "w9_on_file",
-    "is_1099",
 )
 VENDOR_REQUIRED = {"name", "currency", "default_gl_account"}
 VENDOR_TEMPLATE = (
@@ -104,8 +102,6 @@ class CsvImporter:
                     tax_id=row.get("tax_id") or None,
                     status=VendorStatus((row.get("status") or "active").lower()),
                     po_required=_yes_no(row.get("po_required"), default=True),
-                    w9_on_file=_yes_no(row.get("w9_on_file"), default=False),
-                    is_1099=_yes_no(row.get("is_1099"), default=False),
                     early_pay_discount_pct=(
                         _decimal(row["early_pay_discount_pct"], "early_pay_discount_pct")
                         if row.get("early_pay_discount_pct")

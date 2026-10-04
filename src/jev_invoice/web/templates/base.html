@@ -7,18 +7,12 @@
   <title>{% block title %}Jev Invoice{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=Courier+Prime:wght@400;700&display=swap">
-  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
-  <script src="{{ url_for('static', path='app.js') }}" defer></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400..700;1,400&family=Source+Code+Pro:wght@400;600&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ asset_version }}">
+  <script src="{{ url_for('static', path='app.js') }}?v={{ asset_version }}" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <svg class="sr-only" aria-hidden="true" focusable="false">
-    <filter id="ink">
-      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="grain"/>
-      <feDisplacementMap in="SourceGraphic" in2="grain" scale="2.2" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-  </svg>
   <div class="shell">
     <header class="side">
       <a class="wordmark" href="/">
@@ -29,21 +23,19 @@
         <p class="side__group" id="nav-invoices">Invoices</p>
         <ul aria-labelledby="nav-invoices">
           <li><a href="/" {% if nav == "inbox" %}aria-current="page"{% endif %}>Inbox</a></li>
-          <li><a href="/workflow" {% if nav == "workflow" %}aria-current="page"{% endif %}>Workflow</a></li>
           <li><a href="/review" {% if nav == "review" %}aria-current="page"{% endif %}>Review queue</a></li>
+          <li><a href="/payables" {% if nav == "payables" %}aria-current="page"{% endif %}>Payables</a></li>
           <li><a href="/exports" {% if nav == "exports" %}aria-current="page"{% endif %}>Exports</a></li>
+          <li><a href="/workflow" {% if nav == "workflow" %}aria-current="page"{% endif %}>Workflow</a></li>
         </ul>
         <p class="side__group" id="nav-records">Records</p>
         <ul aria-labelledby="nav-records">
           <li><a href="/vendors" {% if nav == "vendors" %}aria-current="page"{% endif %}>Vendors</a></li>
           <li><a href="/purchase-orders" {% if nav == "pos" %}aria-current="page"{% endif %}>Purchase orders</a></li>
+          <li><a href="/accounts" {% if nav == "accounts" %}aria-current="page"{% endif %}>Chart of accounts</a></li>
           <li><a href="/settings" {% if nav == "settings" %}aria-current="page"{% endif %}>Settings</a></li>
         </ul>
       </nav>
-      <p class="side__note">
-        Every invoice carries a routing slip. Each desk it passes stamps it: the vision model,
-        the language model, the rules, Jev, and the policy. Anything uncertain goes to a person.
-      </p>
     </header>
     <main id="main" class="sheet">
       {% block content %}{% endblock %}

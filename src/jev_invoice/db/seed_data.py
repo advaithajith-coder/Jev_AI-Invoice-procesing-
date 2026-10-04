@@ -45,8 +45,6 @@ class VendorSeed:
     bank_account: str | None = None
     status: VendorStatus = VendorStatus.ACTIVE
     po_required: bool = True
-    w9_on_file: bool = True
-    is_1099: bool = False
     # Early-payment discount: (percent, days), e.g. (2, 10) for "2/10 net 30".
     early_pay: tuple[Decimal, int] | None = None
 
@@ -117,14 +115,14 @@ VENDORS: tuple[VendorSeed, ...] = (
     VendorSeed("acme", "Acme Supplies Inc", "USD", "6000", "acmesupplies.com", "84-1234567", 30, "Routing 021000021 Account 4417926819", early_pay=(D("2"), 10)),
     VendorSeed("brightline", "Brightline Cloud Services Inc", "USD", "5000", "brightlinecloud.com", "84-2219034", 30, "Routing 021000021 Account 4417 2209"),
     VendorSeed("halcyon", "Halcyon Computing LLC", "USD", "1500", "halcyoncomputing.com", "47-9876543", 45, "Routing 121000358 Account 5698765432", early_pay=(D("1"), 15)),
-    VendorSeed("meridian", "Meridian Legal LLP", "USD", "6100", "meridianlegal.com", "13-5551239", 14, "Routing 026009593 Account 1555555555", po_required=False, is_1099=True),
+    VendorSeed("meridian", "Meridian Legal LLP", "USD", "6100", "meridianlegal.com", "13-5551239", 14, "Routing 026009593 Account 1555555555", po_required=False),
     VendorSeed("pixelforge", "Pixelforge Marketing LLC", "USD", "6200", "pixelforge.com", "27-4448882", 30, "Routing 011000138 Account 1530093459"),
     VendorSeed("northline", "Northline Freight Inc", "USD", "6800", "northlinefreight.com", "91-8119079", 30, "Routing 125000024 Account 4405320130", early_pay=(D("2"), 10)),
-    VendorSeed("clearpath", "Clearpath IT Support LLC", "USD", "6020", "clearpathit.com", "36-2223334", 30, "Routing 322271627 Account 7612345678", is_1099=True),
+    VendorSeed("clearpath", "Clearpath IT Support LLC", "USD", "6020", "clearpathit.com", "36-2223334", 30, "Routing 322271627 Account 7612345678"),
     VendorSeed("stratus", "Stratus Telecom Inc", "USD", "6500", "stratustelecom.com", "52-7776665", 30, "Routing 071000013 Account 1234567890", po_required=False),
     VendorSeed("harborpoint", "Harbor Point Properties LLC", "USD", "6400", "harborpointproperties.com", "26-5550142", 5, "Routing 111000025 Account 8800145521", po_required=False),
-    VendorSeed("oldmill", "Old Mill Stationers", "USD", "6000", "oldmillstationers.com", None, 30, None, VendorStatus.ON_HOLD, w9_on_file=False),
-    VendorSeed("vortex", "Vortex Trading LLC", "USD", "6700", None, None, 7, None, VendorStatus.BLOCKED, w9_on_file=False),
+    VendorSeed("oldmill", "Old Mill Stationers", "USD", "6000", "oldmillstationers.com", None, 30, None, VendorStatus.ON_HOLD),
+    VendorSeed("vortex", "Vortex Trading LLC", "USD", "6700", None, None, 7, None, VendorStatus.BLOCKED),
 )  # fmt: skip
 
 PURCHASE_ORDERS: tuple[PurchaseOrderSeed, ...] = (

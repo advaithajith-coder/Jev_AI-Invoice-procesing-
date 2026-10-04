@@ -47,3 +47,28 @@ document.addEventListener("DOMContentLoaded", () => {
     progress.hidden = false;
   });
 });
+
+// Copy a read-only text box (the dispute message) to the clipboard.
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy]");
+  if (!button) return;
+  const box = document.getElementById(button.dataset.copy);
+  const status = button.parentElement.querySelector("[data-copy-status]");
+  try {
+    await navigator.clipboard.writeText(box.value);
+    if (status) status.textContent = "Copied. Paste it into your email to the vendor.";
+  } catch {
+    box.select();
+    if (status) status.textContent = "Select all and copy (Ctrl+C).";
+  }
+});
+
+// Payment form: ticking or unticking the discount box updates the amount to pay.
+document.addEventListener("change", (event) => {
+  const box = event.target;
+  if (!box.matches("[data-payment] input[name=take_discount]")) return;
+  const amount = box.form.querySelector("input[name=amount]");
+  const full = Number(box.dataset.full);
+  const discount = Number(box.dataset.discount);
+  amount.value = (box.checked ? full - discount : full).toFixed(2);
+});

@@ -10,7 +10,8 @@
   ("doc", 770, 150, "5", "Document checks", "Rules in code", "document_checks", ""),
   ("md", 940, 150, "6", "Vendor and PO", "Rules in code", "master_data", ""),
   ("jev", 1110, 150, "7", "Jev judgment", "TypeSafe Jev", "judgment", ""),
-  ("policy", 1110, 390, "8", "Decision", "Fixed policy", "decision", ""),
+  ("coding", 1110, 270, "8", "Account coding", "TypeSafe Jev", "coding", ""),
+  ("policy", 1110, 390, "9", "Decision", "Fixed policy", "decision", ""),
   ("review", 940, 520, "", "Review queue", "Waiting for a person", "", "human"),
   ("person", 770, 520, "", "Person decides", "Approves or rejects", "", "human"),
   ("approved", 600, 390, "", "Approved", "Ready to export", "", "ok"),
@@ -29,7 +30,8 @@
   ("extract_doc", "M668,150 H702", "", "", 0, 0),
   ("doc_md", "M838,150 H872", "", "", 0, 0),
   ("md_jev", "M1008,150 H1042", "", "", 0, 0),
-  ("jev_policy", "M1110,182 V358", "", "", 0, 0),
+  ("jev_coding", "M1110,182 V238", "", "", 0, 0),
+  ("coding_policy", "M1110,302 V358", "", "", 0, 0),
   ("policy_approved", "M1042,390 H668", "ok", "No concerns", 855, 380),
   ("policy_review", "M1110,422 C1110,500 1060,520 1008,520", "human", "Needs a person", 1062, 458),
   ("review_person", "M872,520 H838", "human", "", 0, 0),
@@ -46,9 +48,9 @@
   <h1>How an invoice moves</h1>
   <button class="button wf-pause" type="button" data-pause aria-pressed="false">Pause movement</button>
 </div>
-<p class="lede">Every desk an invoice passes, from arrival to your accounting system. The moving slips
+<p class="lede">Every step an invoice passes, from arrival to your accounting system. The moving markers
   follow the same splits as your last {{ w.sample }} invoice{{ "s" if w.sample != 1 }}. An invoice being
-  processed right now is marked with its number at the desk it has reached.</p>
+  processed right now is marked with its number at the step it has reached.</p>
 
 <div class="wf" data-workflow data-live-url="/workflow/live">
   <div class="wf-map">
@@ -56,7 +58,7 @@
       <title id="wf-title">Invoice workflow</title>
       <desc id="wf-desc">An invoice arrives and is read. Scans and photos go through the vision model; files
         with text go straight to field extraction. Then document checks, vendor and purchase order checks,
-        and Jev's judgment. The policy decides: with no concerns the invoice is approved, exported and
+        Jev's judgment, and account coding. The policy decides: with no concerns the invoice is approved, exported and
         imported into accounting; otherwise it waits in the review queue until a person approves or
         rejects it. An invoice that cannot be read stops at "Could not read".</desc>
 
@@ -100,7 +102,7 @@
       <ul class="wf-list" data-now aria-live="polite">
         {% for item in w.in_flight %}
         <li><a href="{{ item.url }}">{{ item.label }}</a> <span class="typed">{{ item.number }}</span>
-          <span class="sub">At desk: {{ item.desk_title }}</span></li>
+          <span class="sub">At step: {{ item.desk_title }}</span></li>
         {% else %}
         <li class="muted">Nothing on the route. <a href="/">Upload an invoice</a> to watch it move.</li>
         {% endfor %}
@@ -118,7 +120,7 @@
       </ul>
     </section>
     <section aria-labelledby="wf-split">
-      <h2 id="wf-split">How the slips split</h2>
+      <h2 id="wf-split">How invoices split</h2>
       <dl class="fields fields--small wf-splits" data-split>
         <dt>Scans and photos</dt><dd data-split-scan>{{ (w.split.scan * 100) | round | int }}%</dd>
         <dt>Approved automatically</dt><dd data-split-auto>{{ (w.split.auto * 100) | round | int }}%</dd>
@@ -126,7 +128,7 @@
         <dt>Approved after review</dt><dd data-split-ok>{{ (w.split.review_approved * 100) | round | int }}%</dd>
         <dt>Could not be read</dt><dd data-split-failed>{{ (w.split.failed * 100) | round | int }}%</dd>
       </dl>
-      <p class="muted small">Moving slips are a sample in these proportions, not real invoices.
+      <p class="muted small">Moving markers are a sample in these proportions, not real invoices.
         Real invoices on the route are the numbered markers.</p>
     </section>
   </div>

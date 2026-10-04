@@ -5,7 +5,8 @@ to do about it. `tone` drives colour: block (red), human (amber), confirm (blue)
 """
 
 from dataclasses import dataclass
-from typing import Literal
+from decimal import Decimal, InvalidOperation
+from typing import Any, Literal
 
 from jev_invoice.domain.enums import ActionBand, DecisionAction, InvoiceStatus, ReasonCode
 
@@ -117,7 +118,7 @@ REASONS: dict[ReasonCode, Reason] = {
     R.TAX_ID_MISMATCH: Reason(
         "Tax ID differs from our records",
         "The tax ID (EIN) on the invoice is not the one on file for this vendor. It may be a"
-        " fake invoice, or a misread number: compare with the vendor's W-9.",
+        " fake invoice, or a misread number: check it against the vendor's tax records.",
         "human",
     ),
     R.WRONG_BILL_TO: Reason(
@@ -237,6 +238,9 @@ STATUSES: dict[InvoiceStatus, tuple[str, Tone]] = {
 
 AUDIT_ACTIONS: dict[str, str] = {
     "settings.approval_limit_changed": "Approval limit changed",
+    "invoice.accounts_changed": "Accounts changed",
+    "gl_account.created": "Account added",
+    "gl_account.updated": "Account changed",
     "invoice.received": "Received",
     "invoice.transcribed": "Image transcribed",
     "invoice.extracted": "Fields read",
@@ -254,7 +258,56 @@ AUDIT_ACTIONS: dict[str, str] = {
     "po.delivery_recorded": "Delivery recorded",
     "po.closed": "Purchase order closed",
     "po.cancelled": "Purchase order cancelled",
+    "invoice.held": "Put on hold",
+    "invoice.disputed": "Disputed with the vendor",
+    "invoice.released": "Hold released",
+    "invoice.dispute_resolved": "Dispute resolved",
+    "invoice.commented": "Comment",
+    "review.assigned": "Review assigned",
+    "review.unassigned": "Review unassigned",
+    "invoice.short_paid": "Short-pay recorded",
+    "invoice.short_pay_cleared": "Short-pay removed",
+    "invoice.credit_applied": "Credit applied",
+    "credit_note.applied": "Credit note applied",
+    "invoice.payment_recorded": "Payment recorded",
+    "invoice.coded": "Lines coded by Jev",
 }
+
+_METHODS = {"ach": "ACH", "check": "check", "wire": "wire", "card": "card"}
+
+
+def event_detail(action: str, data: dict[str, Any]) -> str:
+    """One short line about what an audit event changed, for the history list."""
+    if action == "invoice.payment_recorded":
+        text = f"{_amount(data.get('amount'))} by {_METHODS.get(data.get('method', ''), '')}"
+        if data.get("reference"):
+            text += f", ref {data['reference']}"
+        if _amount(data.get("discount_taken")) not in ("", "0.00"):
+            text += f", {_amount(data['discount_taken'])} discount kept"
+        return text
+    if action == "invoice.credit_applied":
+        return f"{data.get('number', '')}: {_amount(data.get('amount'))}"
+    if action == "invoice.short_paid":
+        return f"withholding {_amount(data.get('amount'))}"
+    if action in ("review.assigned", "review.unassigned"):
+        return f"to {data['to']}" if data.get("to") else "back to the queue"
+    if action in ("invoice.released", "invoice.dispute_resolved"):
+        return str(data.get("outcome_label", ""))
+    if action == "credit_note.applied":
+        return f"to invoice {data.get('invoice_number', '')}"
+    if action == "invoice.coded":
+        return ", ".join(
+            f"{account} ({source})" for account, source in (data.get("lines") or {}).values()
+        )
+    return ""
+
+
+def _amount(value: object) -> str:
+    try:
+        return f"{Decimal(str(value)):,.2f}"
+    except InvalidOperation:
+        return ""
+
 
 VENDOR_STATUSES: dict[str, tuple[str, Tone]] = {
     "active": ("Active", "ok"),

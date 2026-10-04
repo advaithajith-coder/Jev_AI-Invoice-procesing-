@@ -5,7 +5,15 @@
 <div class="section-head">
   <h1>Waiting for review <span class="count">{{ tasks | length }}</span></h1>
 </div>
-<p class="lede">Oldest first. Each invoice shows what the system proposes and why it needs a person.</p>
+<p class="lede">Oldest first. Each invoice shows what the system proposes and why it needs a person.
+  Assign one to a colleague, or hold it while you wait on the vendor, from the invoice's page.</p>
+
+<nav class="filter-tabs" aria-label="Filter the queue">
+  {% set tabs = [("all", "All", none), ("held", "On hold or disputed", counts.held)] %}
+  {% for key, label, count in tabs %}
+  <a href="/review{{ '' if key == 'all' else '?show=' ~ key }}" {% if show == key %}aria-current="true"{% endif %}>{{ label }}{% if count is not none %} <span class="count">{{ count }}</span>{% endif %}</a>
+  {% endfor %}
+</nav>
 
 {% if tasks %}
 <div class="table-wrap">
@@ -17,6 +25,7 @@
         <th scope="col" class="num">Total</th>
         <th scope="col">Proposed</th>
         <th scope="col">Why</th>
+        <th scope="col">Assigned to</th>
       </tr>
     </thead>
     <tbody>
@@ -26,11 +35,13 @@
         <td class="c-when muted">{{ task.created_at | ago }}</td>
         <td class="c-main">
           <a class="rowlink" href="/invoices/{{ invoice.id }}">{{ invoice.vendor.name if invoice.vendor else (invoice.vendor_name or invoice.original_filename) }}</a>
-          <span class="sub">{{ invoice.invoice_number or "" }}</span>
+          <span class="sub">{{ invoice.invoice_number or "" }}
+            {% if invoice.hold_kind == "dispute" %}<span class="tag tag--human">Disputed</span>{% elif invoice.hold_kind %}<span class="tag tag--human">On hold</span>{% endif %}</span>
         </td>
         <td class="c-total num">{{ invoice.total | money(invoice.currency) }}</td>
         <td class="c-tag">{{ action_tag(task.decision.action) }}</td>
         <td class="c-wide reasons-cell">{{ reason_titles(task.decision.reason_codes) }}</td>
+        <td class="c-ref">{% if task.assigned_to %}{{ task.assigned_to }}{% else %}<span class="muted">anyone</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -38,7 +49,7 @@
 </div>
 {% else %}
 <div class="empty">
-  <p>Nothing to review. Invoices that need a person will appear here with their reasons.</p>
+  <p>{% if show == "all" %}Nothing to review. Invoices that need a person will appear here with their reasons.{% else %}Nothing here for this filter.{% endif %}</p>
 </div>
 {% endif %}
 {% endblock %}

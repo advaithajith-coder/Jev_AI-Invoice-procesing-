@@ -10,8 +10,9 @@ For each approved invoice:
 - US sales tax (the default) is a cost: it becomes a "Sales tax" line coded like the rest.
   Where tax is reclaimable (VAT/GST), it is instead spread across the lines in proportion
   to their amounts (remainder on the last line)
-- the expense account is the PO's (when the PO uses one account), else the vendor's
-  default, else the suspense account for recoding later
+- each line uses the account it was coded to (PO, Jev, vendor default or a person);
+  uncoded invoices use the PO's single account, else the vendor's default, else the
+  suspense account for recoding later
 - the due date follows the vendor's agreed terms (invoice date + payment terms), or the
   invoice's own due date when that is later; never an earlier date the invoice asks for
 
@@ -25,7 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,7 +34,7 @@ from jev_invoice.config import Settings
 from jev_invoice.core import audit
 from jev_invoice.core.errors import AppError, NotFoundError
 from jev_invoice.db.models import ExportBatch, GLAccount, Invoice, PurchaseOrder
-from jev_invoice.domain.enums import InvoiceStatus
+from jev_invoice.domain.enums import DocumentType, InvoiceStatus
 from jev_invoice.domain.payment import payment_terms
 from jev_invoice.export.formats import FORMATS, ExportBill, ExportLine
 
@@ -70,7 +71,15 @@ class ExportService:
         """Approved invoices not yet exported, split into ready and not ready (with why)."""
         invoices = await self._session.scalars(
             export_query()
-            .where(Invoice.status == InvoiceStatus.APPROVED, Invoice.export_batch_id.is_(None))
+            .where(
+                Invoice.status == InvoiceStatus.APPROVED,
+                Invoice.export_batch_id.is_(None),
+                # Credit notes are applied to invoices, not exported as bills.
+                or_(
+                    Invoice.document_type.is_(None),
+                    Invoice.document_type != DocumentType.CREDIT_NOTE,
+                ),
+            )
             .order_by(Invoice.received_at)
         )
         names = await self._account_names()
@@ -176,6 +185,10 @@ class ExportService:
 
     def build_bill(self, invoice: Invoice, account_names: dict[str, str]) -> ExportBill | str:
         """The bill to export, or a plain-language reason it cannot be exported yet."""
+        if invoice.document_type == DocumentType.CREDIT_NOTE:
+            return "a credit note: apply it to the vendor's invoice instead"
+        if invoice.hold_kind:
+            return "disputed with the vendor" if invoice.hold_kind == "dispute" else "on hold"
         supplier = invoice.vendor.name if invoice.vendor else invoice.vendor_name
         currency = invoice.currency or (invoice.vendor.default_currency if invoice.vendor else None)
         if not supplier:
@@ -199,10 +212,18 @@ class ExportService:
         tax = invoice.tax_total or Decimal(0)
         shipping = invoice.shipping or Decimal(0)
         net = invoice.total - tax - shipping
-        account = self._account_code(invoice)
-        account_name = account_names.get(account, account)
+        # Each line keeps the account it was coded to; the discount, sales tax and any
+        # summary line go to the invoice's main account (its largest coded line's).
+        fallback = self._account_code(invoice)
+        coded = [line for line in invoice.lines if line.gl_account_code and line.amount is not None]
+        account = (
+            max(coded, key=lambda line: line.amount or Decimal(0)).gl_account_code or fallback
+            if coded
+            else fallback
+        )
 
-        raw: list[tuple[str, Decimal, Decimal, Decimal]] = []  # description, qty, price, amount
+        # description, qty, price, amount, account
+        raw: list[tuple[str, Decimal, Decimal, Decimal, str]] = []
         line_amounts = [line.amount for line in invoice.lines if line.amount is not None]
         discount = invoice.discount or Decimal(0)
         if line_amounts and abs(sum(line_amounts, Decimal(0)) - discount - net) <= _TOLERANCE:
@@ -220,19 +241,21 @@ class ExportService:
                     qty, price = Decimal(1), line.amount
                 else:
                     price = price.quantize(_CENT)
-                raw.append((line.description, qty, price, line.amount))
+                raw.append(
+                    (line.description, qty, price, line.amount, line.gl_account_code or account)
+                )
             if discount:
-                raw.append(("Discount", Decimal(1), -discount, -discount))
+                raw.append(("Discount", Decimal(1), -discount, -discount, account))
         else:
-            raw.append((f"Invoice {invoice.invoice_number}", Decimal(1), net, net))
+            raw.append((f"Invoice {invoice.invoice_number}", Decimal(1), net, net, account))
 
         if tax and self._settings.export_sales_tax_as_cost:
             # US: sales tax is a cost, not a reclaimable tax, so it is a line of its own.
-            raw.append(("Sales tax", Decimal(1), tax, tax))
+            raw.append(("Sales tax", Decimal(1), tax, tax, account))
             taxes = [Decimal(0)] * len(raw)
             tax = Decimal(0)
         else:
-            taxes = _spread(tax, [amount for *_, amount in raw])
+            taxes = _spread(tax, [entry[3] for entry in raw])
         lines = tuple(
             ExportLine(
                 description=description,
@@ -240,10 +263,10 @@ class ExportService:
                 unit_price=price,
                 amount=amount,
                 tax_amount=line_tax,
-                account_code=account,
-                account_name=account_name,
+                account_code=code,
+                account_name=account_names.get(code, code),
             )
-            for (description, qty, price, amount), line_tax in zip(raw, taxes, strict=True)
+            for (description, qty, price, amount, code), line_tax in zip(raw, taxes, strict=True)
         )
         if shipping:
             # Freight is its own cost, coded to Courier and Postage when that account exists.

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_history.html" import history, person_field %}
+{% block title %}{{ account.code }} {{ account.name }} | Jev Invoice{% endblock %}
+{% block content %}
+{% set type_names = {"expense": "Expense", "cost_of_sales": "Cost of sales", "asset": "Asset"} %}
+{% set sources = {"po": ("from the PO", "ok"), "ai": ("chosen by Jev", "confirm"), "vendor": ("vendor default", "muted"),
+                  "suspense": ("needs coding", "human"), "person": ("set by a person", "ok")} %}
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/accounts">Chart of accounts</a><span aria-hidden="true">/</span><span>{{ account.code }}</span></nav>
+<header class="invoice-head">
+  <div>
+    <h1><span class="typed">{{ account.code }}</span> {{ account.name }}</h1>
+    <p class="invoice-head__meta"><span>{{ type_names.get(account.account_type, account.account_type) }}</span>
+      {% if account.is_active %}<span class="tag tag--ok">active</span>{% else %}<span class="tag tag--muted">inactive: Jev no longer offers it</span>{% endif %}</p>
+  </div>
+</header>
+
+{% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+
+<div class="two-col">
+  <section class="panel" aria-labelledby="edit-title">
+    <h2 id="edit-title">Details</h2>
+    {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/accounts/{{ account.code }}">
+      <div class="field"><label for="name">Name</label>
+        <input id="name" name="name" type="text" maxlength="120" value="{{ account.name }}" required></div>
+      <div class="field"><label for="account_type">Type</label>
+        <select id="account_type" name="account_type">
+          {% for t in types %}<option value="{{ t }}" {% if account.account_type == t %}selected{% endif %}>{{ type_names.get(t, t) }}</option>{% endfor %}
+        </select></div>
+      <div class="field"><label for="description">What belongs here <span class="muted">Jev reads this</span></label>
+        <textarea id="description" name="description" rows="4" maxlength="500" required>{{ account.description }}</textarea></div>
+      <div class="field field--check"><label><input name="is_active" type="checkbox" {% if account.is_active %}checked{% endif %}> Active (Jev may code lines to it)</label></div>
+      {{ person_field(person, "person-account") }}
+      <button class="button button--primary" type="submit">Save account</button>
+    </form>
+  </section>
+  <section aria-labelledby="history-title">
+    <h2 id="history-title">History</h2>
+    {{ history(events) }}
+  </section>
+</div>
+
+<section aria-labelledby="lines-title" class="account-lines">
+  <h2 id="lines-title">Recent lines coded here</h2>
+  {% if lines %}
+  <div class="table-wrap">
+    <table class="ledger ledger--compact">
+      <thead><tr><th scope="col">Line</th><th scope="col">Invoice</th><th scope="col">How</th><th scope="col" class="num">Amount</th></tr></thead>
+      <tbody>
+        {% for line in lines %}{% set how, tone = sources.get(line.gl_source, ("not coded", "muted")) %}
+        <tr><td>{{ line.description }}</td>
+          <td><a href="/invoices/{{ line.invoice_id }}">{{ line.invoice.invoice_number or "invoice" }}</a></td>
+          <td><span class="tag tag--{{ tone }}">{{ how }}</span>{% if line.gl_confidence is not none and line.gl_source == "ai" %} <span class="muted small">{{ (line.gl_confidence * 100) | round | int }}%</span>{% endif %}</td>
+          <td class="num">{{ line.amount | money }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="muted">No invoice lines are coded to this account yet.</p>{% endif %}
+</section>
+{% endblock %}

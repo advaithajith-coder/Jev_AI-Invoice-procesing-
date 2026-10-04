@@ -111,6 +111,9 @@ class Settings(BaseSettings):
     quickbooks_tax_code_taxed: str = "TAX"
     quickbooks_tax_code_untaxed: str = "NON"
     quickbooks_date_format: str = "%m/%d/%Y"
+    # Jev's account choice for a line is used at or above this confidence; below it the
+    # vendor's default account applies (Jev's suggestion is still shown).
+    coding_min_confidence: float = Field(default=0.6, ge=0.0, le=1.0)
     # Approved costs with no known expense account go here to be recoded later.
     export_suspense_account: str = "9999"
     # Intuit recommends importing at most 100 bills at a time.

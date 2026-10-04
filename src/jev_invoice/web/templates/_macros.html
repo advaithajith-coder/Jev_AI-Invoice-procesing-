@@ -14,3 +14,16 @@
     <span class="reason-inline reason-inline--{{ r.tone }}">{{ r.title }}</span>{% if not loop.last %}<span class="sep" aria-hidden="true">/</span>{% endif %}
   {%- endfor -%}
 {%- endmacro %}
+
+{#- Where the invoice is: received, checked, approved, exported, paid. -#}
+{% macro rail(invoice, big=false) -%}
+  {%- set r = lifecycle(invoice) -%}
+  <span class="rail rail--{{ r.tone }}{{ ' rail--big' if big }}">
+    <span class="rail__track" role="img" aria-label="{{ r.label }}">
+      {%- for name, state in r.steps -%}
+      <span class="rail__step rail__step--{{ state }}">{% if big %}<span class="rail__name">{{ name }}</span>{% endif %}</span>
+      {%- endfor -%}
+    </span>
+    <span class="rail__caption">{{ r.caption }}</span>
+  </span>
+{%- endmacro %}

@@ -15,20 +15,40 @@ from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from jev_invoice.api.dependencies import SessionDep, get_app_settings, get_pipeline
 from jev_invoice.api.routes.invoices import PayloadTooLargeError
 from jev_invoice.config import Settings
+from jev_invoice.core import audit
 from jev_invoice.core.errors import AppError, NotFoundError
-from jev_invoice.db.models import AuditEvent, Decision, Invoice, ReviewTask
+from jev_invoice.db.models import (
+    AuditEvent,
+    Decision,
+    GLAccount,
+    Invoice,
+    InvoiceCredit,
+    ReviewTask,
+)
 from jev_invoice.decision.policy import DEFAULT_THRESHOLDS
 from jev_invoice.domain.enums import ActionBand, DecisionAction, InvoiceStatus, ReviewStatus
-from jev_invoice.domain.payment import PaymentTerms, payment_terms
 from jev_invoice.ingest.parsing import parse_document
 from jev_invoice.ingest.storage import LocalFileStorage
+from jev_invoice.payables.service import (
+    DISPUTE_CATEGORIES,
+    PAYABLE_STATUSES,
+    PAYMENT_METHODS,
+    RELEASE_OUTCOMES,
+    PayablesService,
+    invoice_balance,
+    invoice_terms,
+    is_credit_note,
+    payment_plan,
+)
 from jev_invoice.pipeline.review import ReviewService
 from jev_invoice.pipeline.service import InvoicePipeline, invoice_query
 from jev_invoice.web import labels
+from jev_invoice.web.lifecycle import lifecycle
 
 router = APIRouter(include_in_schema=False)
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -46,6 +66,7 @@ NOTICES = {
     "uploaded": "Invoice processed.",
     "duplicate": "This exact file was uploaded before. Showing the existing invoice.",
     "approved": "Approved and recorded.",
+    "accounts_saved": "Accounts saved and recorded in the history.",
     "rejected": "Rejected and recorded.",
 }
 
@@ -105,7 +126,12 @@ def duration(ms: object) -> str:
 templates.env.filters.update(
     money=money, date=nice_date, ago=ago, pct=percent, qty=quantity, duration=duration
 )
+# Changes when the stylesheet or script changes, so browsers fetch the new version.
+_STATIC = Path(__file__).parent / "static"
+ASSET_VERSION = max(int((_STATIC / name).stat().st_mtime) for name in ("app.css", "app.js"))
+
 templates.env.globals.update(
+    asset_version=ASSET_VERSION,
     reason=labels.reason,
     ACTIONS=labels.ACTIONS,
     BANDS=labels.BANDS,
@@ -114,6 +140,11 @@ templates.env.globals.update(
     DOC_TYPES=labels.DOCUMENT_TYPES,
     VENDOR_STATUSES=labels.VENDOR_STATUSES,
     PO_STATUSES=labels.PO_STATUSES,
+    DISPUTE_CATEGORIES=DISPUTE_CATEGORIES,
+    RELEASE_OUTCOMES=RELEASE_OUTCOMES,
+    PAYMENT_METHODS=PAYMENT_METHODS,
+    event_detail=labels.event_detail,
+    lifecycle=lifecycle,
 )
 
 
@@ -183,15 +214,26 @@ async def upload(
 
 
 @router.get("/review", response_class=HTMLResponse)
-async def review_queue(request: Request, session: SessionDep) -> HTMLResponse:
+async def review_queue(request: Request, session: SessionDep, show: str = "all") -> HTMLResponse:
+    """Open reviews, oldest first; optionally only those on hold or disputed."""
     tasks = await ReviewService(session).list_open(limit=200)
-    return templates.TemplateResponse(request, "review.html", {"tasks": tasks, "nav": "review"})
+    held = [task for task in tasks if task.invoice.hold_kind]
+    counts = {"held": len(held)}
+    if show == "held":
+        tasks = held
+    else:
+        show = "all"
+    return templates.TemplateResponse(
+        request,
+        "review.html",
+        {"tasks": tasks, "show": show, "counts": counts, "nav": "review"},
+    )
 
 
 # ── Invoice page ──────────────────────────────────────────────────────────────
 
 
-async def _invoice_context(
+async def invoice_context(
     request: Request, session: SessionDep, invoice_id: uuid.UUID
 ) -> dict[str, Any]:
     session.expire_all()
@@ -215,12 +257,40 @@ async def _invoice_context(
     )
     decision = invoice.decisions[-1] if invoice.decisions else None
     reviewer = request.cookies.get(REVIEWER_COOKIE, "")
+    today = datetime.now(UTC).date()
+    payables = PayablesService(session)
+    credit_note = is_credit_note(invoice)
+    balance = invoice_balance(invoice)
+    applied_to = (
+        await session.scalar(
+            select(InvoiceCredit)
+            .where(InvoiceCredit.credit_note_id == invoice.id)
+            .options(selectinload(InvoiceCredit.invoice))
+        )
+        if credit_note
+        else None
+    )
     return {
+        "balance": balance,
+        "is_credit_note": credit_note,
+        "payable": invoice.status in PAYABLE_STATUSES and not credit_note,
+        "plan": payment_plan(invoice, today),
+        "credit_notes": await payables.unapplied_credit_notes(invoice),
+        "credit_targets": (
+            await payables.credit_targets(invoice)
+            if credit_note and open_task and applied_to is None
+            else []
+        ),
+        "applied_to": applied_to,
+        "uncoded": invoice.status != InvoiceStatus.EXPORTED
+        and any(not line.gl_account_code for line in invoice.lines),
+        "dispute_message": _dispute_message(request, invoice) if invoice.hold_kind else None,
+        "form": {},
         "invoice": invoice,
         "decision": decision,
         "open_task": open_task,
-        "terms": _terms(invoice),
-        "today": datetime.now(UTC).date(),
+        "terms": invoice_terms(invoice),
+        "today": today,
         "review_warnings": (
             await review_warnings(session, invoice, decision, reviewer) if open_task else []
         ),
@@ -231,6 +301,11 @@ async def _invoice_context(
         "is_image": invoice.content_type in BROWSER_IMAGE_TYPES,
         "proposes_reject": bool(decision and decision.action == DecisionAction.REJECT_DOCUMENT),
         "reviewer": request.cookies.get(REVIEWER_COOKIE, ""),
+        "gl_accounts": list(
+            await session.scalars(
+                select(GLAccount).where(GLAccount.is_active).order_by(GLAccount.code)
+            )
+        ),
         "notice": NOTICES.get(request.query_params.get("notice", "")),
         "nav": "review" if open_task else "inbox",
     }
@@ -240,7 +315,7 @@ async def _invoice_context(
 async def invoice_page(
     request: Request, invoice_id: uuid.UUID, session: SessionDep
 ) -> HTMLResponse:
-    context = await _invoice_context(request, session, invoice_id)
+    context = await invoice_context(request, session, invoice_id)
     return templates.TemplateResponse(request, "invoice.html", context)
 
 
@@ -274,7 +349,7 @@ async def submit_review(
         )
     except AppError as exc:
         await session.rollback()
-        context = await _invoice_context(request, session, invoice_id)
+        context = await invoice_context(request, session, invoice_id)
         context.update(error=exc.message, reviewer=reviewer, note=note)
         return templates.TemplateResponse(
             request, "invoice.html", context, status_code=max(exc.status_code, 400)
@@ -284,6 +359,52 @@ async def submit_review(
     response.set_cookie(
         REVIEWER_COOKIE, reviewer, max_age=365 * 86400, httponly=True, samesite="lax"
     )
+    return response
+
+
+@router.post("/invoices/{invoice_id}/accounts", response_model=None)
+async def save_accounts(request: Request, invoice_id: uuid.UUID, session: SessionDep) -> Response:
+    """A person codes (or recodes) lines to accounts; each change goes into the history."""
+    form = await request.form()
+    person = str(form.get("person", "")).strip()[:100]
+    invoice = await session.scalar(invoice_query().where(Invoice.id == invoice_id))
+    if invoice is None:
+        raise NotFoundError("Invoice not found")
+    try:
+        if not person:
+            raise FormError("Enter your name so the change is recorded against you.")
+        if invoice.status == InvoiceStatus.EXPORTED:
+            raise FormError("This invoice is already exported. Recode it in the accounting system.")
+        valid = set(await session.scalars(select(GLAccount.code).where(GLAccount.is_active)))
+        changes: dict[str, list[str | None]] = {}
+        for line in invoice.lines:
+            chosen = str(form.get(f"account_{line.id}", "") or "")
+            if not chosen or chosen == line.gl_account_code:
+                continue
+            if chosen not in valid:
+                raise FormError(f"Account {chosen} is not an active account.")
+            changes[line.description] = [line.gl_account_code, chosen]
+            line.gl_account_code = chosen
+            line.gl_source = "person"
+        if changes:
+            audit.record(
+                session,
+                action="invoice.accounts_changed",
+                entity_type="invoice",
+                entity_id=invoice.id,
+                actor=person,
+                data={"changes": changes},
+            )
+        await session.commit()
+    except AppError as exc:
+        await session.rollback()
+        context = await invoice_context(request, session, invoice_id)
+        context.update(error=exc.message, reviewer=person)
+        return templates.TemplateResponse(
+            request, "invoice.html", context, status_code=max(exc.status_code, 400)
+        )
+    response = RedirectResponse(f"/invoices/{invoice_id}?notice=accounts_saved", status_code=303)
+    response.set_cookie(REVIEWER_COOKIE, person, max_age=365 * 86400, httponly=True, samesite="lax")
     return response
 
 
@@ -347,19 +468,29 @@ async def review_warnings(
     return warnings
 
 
-def _terms(invoice: Invoice) -> PaymentTerms | None:
-    if invoice.invoice_date is None:
-        return None
-    vendor = invoice.vendor
-    return payment_terms(
-        invoice_date=invoice.invoice_date,
-        printed_due=invoice.due_date,
-        # The early-payment discount applies to what is still owed.
-        total=invoice.amount_due if invoice.amount_due is not None else invoice.total,
-        agreed_days=vendor.payment_terms_days if vendor else 30,
-        discount_pct=vendor.early_pay_discount_pct if vendor else None,
-        discount_days=vendor.early_pay_days if vendor else None,
-    )
+def _dispute_message(request: Request, invoice: Invoice) -> str:
+    """A message to send the vendor about a dispute (copied by the person; never sent)."""
+    settings = request.app.state.settings
+    vendor = invoice.vendor.name if invoice.vendor else (invoice.vendor_name or "there")
+    number = invoice.invoice_number or invoice.original_filename
+    dated = f" dated {nice_date(invoice.invoice_date)}" if invoice.invoice_date else ""
+    amount = money(invoice.total, invoice.currency) if invoice.total is not None else ""
+    about = DISPUTE_CATEGORIES.get(invoice.hold_category or "", "A query")
+    paragraphs = [
+        f"Subject: Invoice {number}: query before payment",
+        f"Hello {vendor},",
+        f"We have put invoice {number}{dated} for {amount} on hold. {about}.",
+        invoice.hold_reason or "",
+    ]
+    if invoice.withheld_amount:
+        undisputed = money(invoice_balance(invoice).balance, invoice.currency)
+        paragraphs.append(f"We will pay the undisputed part, {undisputed}, on the agreed terms.")
+    paragraphs += [
+        "Please reply with a corrected invoice, a credit note, or the details that resolve"
+        " this, quoting the invoice number.",
+        f"Thank you,\n{invoice.held_by or ''}\nAccounts Payable, {settings.company_name}",
+    ]
+    return "\n\n".join(paragraph for paragraph in paragraphs if paragraph)
 
 
 def _document_text(request: Request, invoice: Invoice) -> str | None:

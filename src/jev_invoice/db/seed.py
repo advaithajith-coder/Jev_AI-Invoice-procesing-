@@ -82,8 +82,6 @@ async def seed(session: AsyncSession, settings: Settings) -> dict[str, int]:
                 "early_pay_discount_pct": v.early_pay_discount_pct,
                 "early_pay_days": v.early_pay_days,
                 "po_required": v.po_required,
-                "w9_on_file": v.w9_on_file,
-                "is_1099": v.is_1099,
                 "bank_account_last4": bank_account_last4(v.bank_account)
                 if v.bank_account
                 else None,

@@ -30,7 +30,7 @@
         <td class="c-main"><a class="rowlink" href="/vendors/{{ vendor.id }}">{{ vendor.name }}</a></td>
         <td class="c-tag"><span class="tag tag--{{ tone }}">{{ label }}</span></td>
         <td class="c-ref">{{ vendor.default_currency }}</td>
-        <td class="c-when">{% if vendor.early_pay_discount_pct %}{{ vendor.early_pay_discount_pct.normalize() }}/{{ vendor.early_pay_days }} {% endif %}net {{ vendor.payment_terms_days }}{% if not vendor.po_required %} <span class="tag tag--muted">no PO</span>{% endif %}{% if vendor.is_1099 %} <span class="tag tag--muted">1099</span>{% endif %}</td>
+        <td class="c-when">{% if vendor.early_pay_discount_pct %}{{ vendor.early_pay_discount_pct.normalize() }}/{{ vendor.early_pay_days }} {% endif %}net {{ vendor.payment_terms_days }}{% if not vendor.po_required %} <span class="tag tag--muted">no PO</span>{% endif %}</td>
         <td>{% if vendor.bank_account_last4 %}ending {{ vendor.bank_account_last4 }}{% else %}<span class="muted">none on file</span>{% endif %}</td>
         <td>{{ vendor.default_gl_account_code or "" }}</td>
         <td class="c-total num">{{ open_pos.get(vendor.id, 0) }}</td>
@@ -64,8 +64,6 @@
         Invoices must quote a purchase order</label>
         <p class="muted small">Untick for rent, utilities, legal fees and subscriptions, which are billed without a PO.</p></div>
       <div class="field-row">
-        <div class="field field--check"><label><input name="w9_on_file" type="checkbox" {% if f.get('w9_on_file') %}checked{% endif %}> W-9 on file</label></div>
-        <div class="field field--check"><label><input name="is_1099" type="checkbox" {% if f.get('is_1099') %}checked{% endif %}> 1099 vendor</label></div>
       </div>
       <div class="field"><label for="default_gl_account_code">Default expense account</label>
         <select id="default_gl_account_code" name="default_gl_account_code" required>
@@ -88,7 +86,7 @@
 
   <section class="panel" aria-labelledby="import-title">
     <h2 id="import-title">Import from CSV</h2>
-    <p class="muted small">One vendor per row. Columns: name, currency, payment_terms_days, early_pay_discount_pct, early_pay_days, po_required, w9_on_file, is_1099,
+    <p class="muted small">One vendor per row. Columns: name, currency, payment_terms_days, early_pay_discount_pct, early_pay_days, po_required,
       default_gl_account, bank_account, email_domain, tax_id, status.
       <a href="/vendors/import-template.csv">Download a template</a>.</p>
     <p class="muted small">Every row is checked first. If any row has a problem, nothing is

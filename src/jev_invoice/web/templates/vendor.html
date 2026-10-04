@@ -38,8 +38,6 @@
       <div class="field field--check"><label><input name="po_required" type="checkbox" {% if vendor.po_required %}checked{% endif %}>
         Invoices must quote a purchase order</label></div>
       <div class="field-row">
-        <div class="field field--check"><label><input name="w9_on_file" type="checkbox" {% if vendor.w9_on_file %}checked{% endif %}> W-9 on file</label></div>
-        <div class="field field--check"><label><input name="is_1099" type="checkbox" {% if vendor.is_1099 %}checked{% endif %}> 1099 vendor</label></div>
       </div>
       <div class="field"><label for="default_gl_account_code">Default expense account</label>
         <select id="default_gl_account_code" name="default_gl_account_code" required>

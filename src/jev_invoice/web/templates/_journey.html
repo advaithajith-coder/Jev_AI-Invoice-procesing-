@@ -1,13 +1,12 @@
 {% from "_macros.html" import status_tag, action_tag %}
 {% set inv = j.invoice %}
-{% set step_labels = {"pending": ("Waiting", "muted"), "running": ("At this desk", "confirm"), "done": ("Done", "ok"),
+{% set step_labels = {"pending": ("Waiting", "muted"), "running": ("In progress", "confirm"), "done": ("Done", "ok"),
                       "warning": ("Needs attention", "human"), "failed": ("Failed", "block"), "skipped": ("Skipped", "muted")} %}
 {% set desk_stamps = {"received": "Received", "read": "Read", "transcribe": "Transcribed", "extract": "Extracted",
-                      "document_checks": "Checked", "master_data": "Matched", "judgment": "Judged",
+                      "document_checks": "Checked", "master_data": "Matched", "judgment": "Judged", "coding": "Coded",
                       "decision": "Decided", "outcome": "Routed"} %}
 {% set decision_stamps = {"auto_approve": "Approve", "route_approval": "Refer", "hold_review": "Hold",
                           "reject_document": "Reject?", "fraud_review": "Stop"} %}
-{% set tilts = [-3, 2, -1.5, 2.5, -2, 1.5, -2.5, 1, -1.8] %}
 {% set field_labels = [("description", "Description"), ("vendor_name", "Vendor"), ("bill_to_name", "Bill to"), ("vendor_tax_id", "Vendor tax ID"),
                        ("invoice_number", "Invoice number"), ("invoice_date", "Invoice date"),
                        ("due_date", "Due date"), ("currency", "Currency"), ("po_reference", "PO reference"),
@@ -20,7 +19,7 @@
 <article class="slip journey" data-finished="{{ 'true' if j.finished else 'false' }}" aria-labelledby="slip-title">
   <header class="slip__head">
     <div>
-      <p class="slip__form"><b id="slip-title">Routing slip</b><span>Accounts payable</span>
+      <p class="slip__form"><b id="slip-title">Processing record</b>
         {% if j.finished %}{{ status_tag(inv.status) }}{% else %}<span class="tag tag--confirm">Processing</span>{% endif %}</p>
       <dl class="slip__fields">
         <div class="wide vendor"><dt>Vendor</dt><dd>{{ inv.vendor.name if inv.vendor else (inv.vendor_name or "not read yet") }}</dd></div>
@@ -32,14 +31,14 @@
       </dl>
     </div>
     <div class="slip__date">
-      <span class="stamp stamp--date" style="--tilt: 4deg">Received<b>{{ inv.received_at.strftime("%d %b %Y") }}</b>{{ inv.received_at.strftime("%H:%M") }} UTC</span>
+      <span class="stamp stamp--date">Received<b>{{ inv.received_at.strftime("%d %b %Y") }}</b>{{ inv.received_at.strftime("%H:%M") }} UTC</span>
     </div>
   </header>
 
   {% if not j.finished %}
   <p class="journey__status journey__status--live" role="status" aria-live="polite">
     <span class="pulse" aria-hidden="true"></span>
-    {% if j.current %}<b>Desk {{ j.current.number }}, {{ j.current.title }}:</b> <span>{{ j.current.row.summary or "Working." }}</span>{% else %}<b>Starting</b>{% endif %}
+    {% if j.current %}<b>Step {{ j.current.number }}, {{ j.current.title }}:</b> <span>{{ j.current.row.summary or "Working." }}</span>{% else %}<b>Starting</b>{% endif %}
   </p>
   {% else %}
   <p class="journey__status" role="status">
@@ -48,8 +47,8 @@
   </p>
   {% endif %}
 
-  <div class="desks__head" aria-hidden="true"><span>No.</span><span>Desk</span><span>What happened</span><span>Time</span><span>Stamp</span></div>
-  <ol class="desks" aria-label="Desks this invoice passes">
+  <div class="desks__head" aria-hidden="true"><span>No.</span><span>Step</span><span>What happened</span><span>Time</span><span>Result</span></div>
+  <ol class="desks" aria-label="Steps this invoice passes">
     {% for s in j.steps %}
     {% set label, tone = step_labels.get(s.status, (s.status, "muted")) %}
     {% set d = s.details %}
@@ -63,13 +62,13 @@
         <p class="desk__what">{% if s.key == "decision" and s.status == "done" and d.action %}{{ ACTIONS.get(d.action, (d.action,))[0] }}{% if d.deciding_reasons %}, because of: {% for code in d.deciding_reasons %}{{ reason(code).title }}{{ "; " if not loop.last }}{% endfor %}{% else %}, with no concerns from any check or from Jev{% endif %}.{% elif s.row %}{{ s.row.summary }}{% elif not j.finished %}Waiting for earlier steps.{% else %}Did not run.{% endif %}</p>
         <span class="desk__time">{% if s.row and s.status not in ("running", "skipped") %}{{ s.row.duration_ms | duration }}{% endif %}</span>
         <span class="desk__stamp">
-          {% if s.status == "running" %}<span class="stamp stamp--at"><span class="pulse" aria-hidden="true"></span>At this desk</span>
+          {% if s.status == "running" %}<span class="stamp stamp--at"><span class="pulse" aria-hidden="true"></span>In progress</span>
           {% elif s.status == "pending" %}<span class="stamp stamp--blank"><span class="sr-only">Not stamped yet</span></span>
-          {% elif s.status == "skipped" %}<span class="stamp" style="--tilt: {{ tilts[loop.index0] }}deg">Not needed</span>
-          {% elif s.status == "failed" %}<span class="stamp stamp--block" style="--tilt: {{ tilts[loop.index0] }}deg">Failed</span>
-          {% elif s.status == "warning" %}<span class="stamp stamp--human" style="--tilt: {{ tilts[loop.index0] }}deg">Query</span>
-          {% elif s.key == "decision" and d.action %}{% set a_tone = ACTIONS.get(d.action, ("", "muted"))[1] %}<span class="stamp stamp--{{ a_tone }}" style="--tilt: {{ tilts[loop.index0] }}deg">{{ decision_stamps.get(d.action, "Decided") }}</span>
-          {% else %}<span class="stamp stamp--ok" style="--tilt: {{ tilts[loop.index0] }}deg">{{ desk_stamps.get(s.key, "Done") }}</span>{% endif %}
+          {% elif s.status == "skipped" %}<span class="stamp">Not needed</span>
+          {% elif s.status == "failed" %}<span class="stamp stamp--block">Failed</span>
+          {% elif s.status == "warning" %}<span class="stamp stamp--human">Needs a person</span>
+          {% elif s.key == "decision" and d.action %}{% set a_tone = ACTIONS.get(d.action, ("", "muted"))[1] %}<span class="stamp stamp--{{ a_tone }}">{{ decision_stamps.get(d.action, "Decided") }}</span>
+          {% else %}<span class="stamp stamp--ok">{{ desk_stamps.get(s.key, "Done") }}</span>{% endif %}
           <span class="sr-only">{{ label }}</span>
         </span>
       </div>
@@ -177,6 +176,26 @@
           <ul class="plain-list">{% for name, text in d.questions.items() %}<li><span class="typed">{{ name }}</span> <span>{{ text }}</span></li>{% endfor %}</ul>
         </details>
 
+      {% elif s.key == "coding" %}
+        {% set sources = {"po": ("from the PO", "ok"), "ai": ("chosen by Jev", "confirm"), "vendor": ("vendor default", "muted"), "suspense": ("needs coding", "human")} %}
+        <div class="table-wrap">
+          <table class="ledger ledger--compact">
+            <thead><tr><th scope="col">Line</th><th scope="col">Account</th><th scope="col">How</th><th scope="col" class="num">Jev's confidence</th></tr></thead>
+            <tbody>
+              {% for line in d.lines %}{% set how, tone = sources.get(line.source, (line.source, "muted")) %}
+              <tr><td>{{ line.description }}</td>
+                <td class="typed">{{ line.account }} {{ line.account_name }}{% if line.suggestion %}<span class="sub">Jev suggested {{ line.suggestion }} {{ line.suggestion_name }}</span>{% endif %}</td>
+                <td><span class="tag tag--{{ tone }}">{{ how }}</span></td>
+                <td class="num">{% if line.confidence is not none %}{{ (line.confidence * 100) | round | int }}%{% else %}<span class="muted">not asked</span>{% endif %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="muted small">PO accounts are used as the buyer set them. Otherwise Jev's choice is used at {{ (d.min_confidence * 100) | round | int }}% confidence or more, then the vendor's default account, then the suspense account for someone to recode.</p>
+        {% if d.questions %}<details id="d-coding-questions"><summary>Questions sent to Jev</summary>
+          <ul class="plain-list">{% for name, text in d.questions.items() %}<li><span class="typed">{{ name }}</span> <span>{{ text }}</span></li>{% endfor %}</ul>
+        </details>{% endif %}
+
       {% elif s.key == "decision" %}
         {% set a_label, a_tone = ACTIONS.get(d.action, (d.action, "muted")) %}
         <div class="decision decision--{{ a_tone }}">
@@ -234,7 +253,7 @@
 
   {% if j.time %}
   <figure class="timebar">
-    <figcaption class="timebar__title">Time at each desk</figcaption>
+    <figcaption class="timebar__title">Time at each step</figcaption>
     <div class="timebar__bar" aria-hidden="true">
       {% for seg in j.time %}<span class="timebar__seg seg--{{ seg.kind }}" style="flex-basis: {{ '%.2f' | format(seg.share) }}%" title="{{ seg.label }}: {{ seg.ms | duration }}"></span>{% endfor %}
     </div>

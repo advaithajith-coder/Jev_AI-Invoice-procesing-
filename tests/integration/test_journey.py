@@ -75,7 +75,7 @@ def test_every_step_is_recorded_with_details(
 
     assert list(sorted(steps, key=lambda k: steps[k].position)) == [
         "received", "read", "transcribe", "extract", "document_checks",
-        "master_data", "judgment", "decision", "outcome",
+        "master_data", "judgment", "coding", "decision", "outcome",
     ]  # fmt: skip
     assert steps["transcribe"].status == "skipped"
     assert all(
@@ -383,4 +383,4 @@ def test_runner_restarts_an_invoice_interrupted_after_extraction(seeded_settings
 
     assert status == InvoiceStatus.APPROVED
     assert "running" not in step_statuses
-    assert len(step_statuses) == 9
+    assert len(step_statuses) == 10  # nine desks plus account coding

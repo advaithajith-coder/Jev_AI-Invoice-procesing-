@@ -29,7 +29,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    false,
     func,
     text,
     true,
@@ -129,10 +128,6 @@ class Vendor(TimestampMixin, Base):
     early_pay_days: Mapped[int | None] = mapped_column(Integer)
     # False for vendors billed without a PO: rent, utilities, legal fees, subscriptions.
     po_required: Mapped[bool] = mapped_column(default=True, server_default=true())
-    # US tax paperwork: a W-9 gives the vendor's tax ID; 1099 vendors (contractors, attorneys)
-    # get a year-end 1099 for what they were paid. Recorded here, not enforced on invoices.
-    w9_on_file: Mapped[bool] = mapped_column(default=False, server_default=false())
-    is_1099: Mapped[bool] = mapped_column(default=False, server_default=false())
     bank_account_last4: Mapped[str | None] = mapped_column(String(4))
     bank_account_fingerprint: Mapped[str | None] = mapped_column(String(64))
     default_gl_account_code: Mapped[str | None] = mapped_column(ForeignKey("gl_accounts.code"))
@@ -301,6 +296,17 @@ class Invoice(TimestampMixin, Base):
     raw_extraction: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
 
     error_message: Mapped[str | None] = mapped_column(Text)
+
+    # Exceptions. A hold (or a dispute with the vendor) stops export and payment until it
+    # is released. A short-pay withholds part of the bill, with a reason.
+    hold_kind: Mapped[str | None] = mapped_column(String(20))  # hold | dispute
+    hold_category: Mapped[str | None] = mapped_column(String(40))
+    hold_reason: Mapped[str | None] = mapped_column(Text)
+    held_by: Mapped[str | None] = mapped_column(String(100))
+    held_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    withheld_amount: Mapped[Decimal | None] = mapped_column(Money)
+    withheld_reason: Mapped[str | None] = mapped_column(Text)
+
     export_batch_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("export_batches.id"), index=True
     )
@@ -318,6 +324,15 @@ class Invoice(TimestampMixin, Base):
         back_populates="invoice", order_by="Decision.created_at"
     )
     export_batch: Mapped["ExportBatch | None"] = relationship(back_populates="invoices")
+    payments: Mapped[list["Payment"]] = relationship(
+        back_populates="invoice", order_by="Payment.paid_on", cascade="all, delete-orphan"
+    )
+    credits: Mapped[list["InvoiceCredit"]] = relationship(
+        back_populates="invoice",
+        foreign_keys="InvoiceCredit.invoice_id",
+        order_by="InvoiceCredit.created_at",
+        cascade="all, delete-orphan",
+    )
     # Read-only: StepRecorder writes steps directly so they can be committed one by one.
     steps: Mapped[list["PipelineStep"]] = relationship(
         order_by="PipelineStep.position", viewonly=True
@@ -336,11 +351,68 @@ class InvoiceLine(Base):
     unit_price: Mapped[Decimal | None] = mapped_column(UnitPrice)
     amount: Mapped[Decimal | None] = mapped_column(Money)
     gl_account_code: Mapped[str | None] = mapped_column(ForeignKey("gl_accounts.code"))
+    # How the account was chosen: po | ai | vendor | suspense | person
+    gl_source: Mapped[str | None] = mapped_column(String(20))
+    # Jev's confidence in its choice (0..1), when it chose or was asked
+    gl_confidence: Mapped[float | None] = mapped_column()
     purchase_order_line_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("purchase_order_lines.id")
     )
 
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
+
+
+class Payment(Base):
+    """Money paid against an approved invoice (recorded here, paid in the bank).
+
+    `discount_taken` is the early-payment discount kept when paying inside the window:
+    it settles part of the bill without being paid.
+    """
+
+    __tablename__ = "payments"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="amount_positive"),
+        CheckConstraint("discount_taken >= 0", name="discount_non_negative"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("invoices.id", ondelete="CASCADE"), index=True
+    )
+    paid_on: Mapped[date] = mapped_column(Date, index=True)
+    amount: Mapped[Decimal] = mapped_column(Money)
+    discount_taken: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
+    method: Mapped[str] = mapped_column(String(20))  # ach | check | wire | card
+    reference: Mapped[str | None] = mapped_column(String(100))
+    recorded_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    invoice: Mapped[Invoice] = relationship(back_populates="payments")
+
+
+class InvoiceCredit(Base):
+    """A vendor credit applied to an invoice, reducing what is owed on it.
+
+    Either an uploaded credit note (`credit_note_id`, itself an invoice row whose
+    document type is credit_note) or one entered by hand from the vendor's number.
+    """
+
+    __tablename__ = "invoice_credits"
+    __table_args__ = (CheckConstraint("amount > 0", name="amount_positive"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("invoices.id", ondelete="CASCADE"), index=True
+    )
+    credit_note_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("invoices.id"), unique=True)
+    number: Mapped[str] = mapped_column(String(100))
+    amount: Mapped[Decimal] = mapped_column(Money)
+    reason: Mapped[str | None] = mapped_column(Text)
+    recorded_by: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    invoice: Mapped[Invoice] = relationship(back_populates="credits", foreign_keys=[invoice_id])
+    credit_note: Mapped[Invoice | None] = relationship(foreign_keys=[credit_note_id])
 
 
 # ── Decisions, review, audit ──────────────────────────────────────────────────

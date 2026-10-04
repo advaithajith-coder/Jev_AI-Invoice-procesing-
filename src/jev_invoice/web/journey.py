@@ -25,7 +25,7 @@ router = APIRouter(include_in_schema=False)
 
 AFTER_PIPELINE = {"review.approved", "review.rejected", "invoice.exported"}
 IN_PROGRESS = (InvoiceStatus.RECEIVED, InvoiceStatus.EXTRACTED)
-COST_STEPS = ("transcribe", "extract", "judgment")
+COST_STEPS = ("transcribe", "extract", "judgment", "coding")
 
 # Who handles each step: (kind, label). The kind also colours the time bar.
 ACTORS: dict[str, tuple[str, str]] = {
@@ -36,6 +36,7 @@ ACTORS: dict[str, tuple[str, str]] = {
     "document_checks": ("rules", "Rules in code"),
     "master_data": ("rules", "Rules in code"),
     "judgment": ("jev", "TypeSafe Jev"),
+    "coding": ("jev", "TypeSafe Jev"),
     "decision": ("policy", "Decision policy"),
     "outcome": ("workflow", "Workflow"),
 }

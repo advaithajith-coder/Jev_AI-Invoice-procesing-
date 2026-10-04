@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Payables | Jev Invoice{% endblock %}
+{% from "_macros.html" import rail %}
+{% block content %}
+<div class="section-head">
+  <h1>Payables</h1>
+  <a class="button" href="/payables/invoices.csv?tab={{ tab }}" download>Download CSV</a>
+</div>
+<p class="lede">Approved invoices and what is still owed on each, on {{ o.today | date }}: after deposits, credits,
+  short-pays and payments. While an early-payment discount is open, the invoice is planned for its last day.</p>
+
+<section id="invoices" aria-labelledby="invoices-title">
+  <h2 id="invoices-title" class="sr-only">Invoices</h2>
+  <nav class="filter-tabs" aria-label="Which invoices">
+    {% for key, label in tabs.items() %}
+    <a href="?tab={{ key }}" {% if tab == key %}aria-current="page"{% endif %}>{{ label }} <span class="count">{{ counts[key] }}</span></a>
+    {% endfor %}
+  </nav>
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="ledger ledger--stack payables">
+      <thead><tr>
+        <th scope="col">Vendor</th><th scope="col">Invoice</th>
+        <th scope="col" class="num">{{ "Paid" if tab == "paid" else "Owed" }}</th>
+        <th scope="col">{{ "Paid on" if tab == "paid" else "When to pay" }}</th><th scope="col">Progress</th>
+      </tr></thead>
+      <tbody>
+        {% for item in rows %}
+        {% set inv = item.invoice %}
+        <tr class="{{ 'payables__row--overdue' if item.late and not item.held }}">
+          <td class="c-main"><a class="rowlink" href="/invoices/{{ inv.id }}">{{ item.vendor }}</a>
+            {% if inv.description %}<span class="sub">{{ inv.description }}</span>{% endif %}</td>
+          <td class="c-ref">{{ inv.invoice_number or inv.original_filename }}</td>
+          {% if tab == "paid" %}
+          <td class="c-total num">{{ item.balance.paid | money(inv.currency) }}{% if item.balance.discount %}<span class="sub">+ {{ item.balance.discount | money }} discount kept</span>{% endif %}</td>
+          <td class="c-when">{{ item.last_paid | date }}</td>
+          {% else %}
+          <td class="c-total num">{{ item.owed | money(inv.currency) }}{% if item.balance.settled %}<span class="sub">of {{ item.balance.billed | money }} billed</span>{% endif %}</td>
+          <td class="c-when">
+            {% if item.held %}<span class="muted">when released</span><span class="sub">due {{ item.terms.pay_by | date if item.terms else "no date" }}</span>
+            {% elif item.late %}<b>Now</b> <span class="tag tag--block">{{ item.days_late }} day{{ "s" if item.days_late != 1 }} late</span><span class="sub">was due {{ item.terms.pay_by | date }}</span>
+            {% elif item.discount %}{{ item.pay_on | date }} <span class="discount-chip"><b>keep {{ item.terms.discount_pct.normalize() }}%</b> {{ item.discount | money }}</span><span class="sub">due {{ item.terms.pay_by | date }} without the discount</span>
+            {% elif item.terms %}{{ item.pay_on | date }}<span class="sub">{% if item.days_until == 0 %}today{% else %}in {{ item.days_until }} day{{ "s" if item.days_until != 1 }}{% endif %}</span>
+            {% else %}<span class="muted">no invoice date</span>{% endif %}
+          </td>
+          {% endif %}
+          <td class="c-tag">{{ rail(inv) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      {% set count = rows | length %}
+      <tfoot class="totals">
+        <tr>
+          <th scope="row" colspan="2">Total <span class="muted">{{ count }} invoice{{ "s" if count != 1 }}</span></th>
+          {% if tab == "paid" %}
+          {% set kept = rows | sum(attribute="balance.discount") %}
+          <td class="num">{{ cur }} {{ (rows | sum(attribute="balance.paid")) | money }}{% if kept %}<span class="sub">+ {{ kept | money }} discount kept</span>{% endif %}</td>
+          <td colspan="2"></td>
+          {% else %}
+          {% set owed = rows | sum(attribute="owed") %}
+          {% set kept = rows | sum(attribute="discount") %}
+          <td class="num">{{ cur }} {{ owed | money }}</td>
+          <td colspan="2">{% if kept %}<span class="totals__note">{{ (owed - kept) | money }} if paid on these dates, keeping {{ kept | money }} in discounts</span>{% endif %}</td>
+          {% endif %}
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><p>{% if tab == "paid" %}No paid invoices yet. Record payments on an invoice's page.{% elif tab == "open" %}Nothing owed. Approved invoices appear here until they are paid.{% else %}No invoices here.{% endif %}</p></div>
+  {% endif %}
+</section>
+{% endblock %}

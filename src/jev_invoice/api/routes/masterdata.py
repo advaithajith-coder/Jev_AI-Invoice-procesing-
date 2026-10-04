@@ -51,8 +51,6 @@ class VendorOut(BaseModel):
     early_pay_discount_pct: Decimal | None
     early_pay_days: int | None
     po_required: bool
-    w9_on_file: bool
-    is_1099: bool
     default_gl_account_code: str | None
     email_domain: str | None
     tax_id: str | None
