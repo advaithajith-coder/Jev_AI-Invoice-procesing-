@@ -48,6 +48,14 @@ def test_inbox_shows_upload_form_and_empty_state(client: TestClient) -> None:
     assert "No invoices yet" in page
 
 
+def test_screens_are_named_after_the_company(client: TestClient) -> None:
+    page = client.get("/review").text
+
+    assert "<title>Review queue | Northwind Analytics AP</title>" in page
+    assert '<span class="wordmark__name">Northwind Analytics</span>' in page
+    assert "Invoices must be billed to Northwind Analytics Inc." in client.get("/").text
+
+
 def test_upload_redirects_to_invoice_page_with_plain_language_reasons(
     app: FastAPI, client: TestClient, seeded_settings: Settings
 ) -> None:

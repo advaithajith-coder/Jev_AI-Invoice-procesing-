@@ -4,6 +4,7 @@ Plain HTML forms that post and redirect (no client framework). Jinja2 autoescapi
 is on, so text from invoices (untrusted) is always rendered as text, never markup.
 """
 
+import re
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -130,6 +131,15 @@ templates.env.filters.update(
 _STATIC = Path(__file__).parent / "static"
 ASSET_VERSION = max(int((_STATIC / name).stat().st_mtime) for name in ("app.css", "app.js"))
 
+_LEGAL_SUFFIX = re.compile(r",?\s+(inc|llc|ltd|llp|corp|co|plc|gmbh)\.?$", re.IGNORECASE)
+
+
+def use_company(name: str) -> None:
+    """Name the screens after the company they process invoices for."""
+    templates.env.globals.update(company=name, company_short=_LEGAL_SUFFIX.sub("", name))
+
+
+use_company(Settings.model_fields["company_name"].default)
 templates.env.globals.update(
     asset_version=ASSET_VERSION,
     reason=labels.reason,

@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% from "_macros.html" import action_tag, rail %}
-{% block title %}Inbox | Jev Invoice{% endblock %}
+{% block title %}Inbox | {{ company_short }} AP{% endblock %}
 {% block content %}
 <div class="intake">
   <section class="upload" aria-labelledby="upload-title">
     <h1 id="upload-title">Process an invoice</h1>
     <p class="lede">
       Upload a PDF, a scan or photo, a text file, or an email with the invoice attached.
+      Invoices must be billed to {{ company }}.
       You will watch it go through every step, and see who decided what and why.
     </p>
 

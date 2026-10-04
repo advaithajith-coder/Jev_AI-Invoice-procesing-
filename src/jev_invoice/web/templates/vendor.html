@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_history.html" import history, person_field %}
 {% from "_macros.html" import status_tag %}
-{% block title %}{{ vendor.name }} | Jev Invoice{% endblock %}
+{% block title %}{{ vendor.name }} | {{ company_short }} AP{% endblock %}
 {% block content %}
 <nav class="crumbs" aria-label="Breadcrumb"><a href="/vendors">Vendors</a><span aria-hidden="true">/</span><span>{{ vendor.name }}</span></nav>
 {% set label, tone = VENDOR_STATUSES.get(vendor.status, (vendor.status, "muted")) %}

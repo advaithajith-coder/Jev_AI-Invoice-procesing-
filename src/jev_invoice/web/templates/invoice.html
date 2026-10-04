@@ -2,7 +2,7 @@
 {% from "_macros.html" import action_tag, rail %}
 {% from "_history.html" import person_field %}
 {% set vendor_label = invoice.vendor.name if invoice.vendor else (invoice.vendor_name or invoice.original_filename) %}
-{% block title %}{{ vendor_label }} {{ invoice.invoice_number or "" }} | Jev Invoice{% endblock %}
+{% block title %}{{ vendor_label }} {{ invoice.invoice_number or "" }} | {{ company_short }} AP{% endblock %}
 {% block content %}
 <nav class="crumbs" aria-label="Breadcrumb">
   <a href="{{ '/review' if open_task else '/' }}">{{ "Review queue" if open_task else "Inbox" }}</a>
@@ -41,7 +41,7 @@
       <label class="sr-only" for="dispute-message">Message for the vendor</label>
       <textarea id="dispute-message" rows="11" readonly>{{ dispute_message }}</textarea>
       <p class="hold__copy"><button class="button" type="button" data-copy="dispute-message">Copy message</button>
-        <span class="muted small" data-copy-status role="status">Jev Invoice does not send email: paste this into your reply to the vendor.</span></p>
+        <span class="muted small" data-copy-status role="status">This system does not send email: paste this into your reply to the vendor.</span></p>
     </details>
     {% endif %}
   </div>

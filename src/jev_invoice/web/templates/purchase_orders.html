@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_history.html" import person_field %}
-{% block title %}Purchase orders | Jev Invoice{% endblock %}
+{% block title %}Purchase orders | {{ company_short }} AP{% endblock %}
 {% block content %}
 <div class="section-head">
   <h1>Purchase orders <span class="count">{{ summaries | length }}</span></h1>

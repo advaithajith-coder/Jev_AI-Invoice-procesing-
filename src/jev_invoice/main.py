@@ -162,6 +162,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(web_exceptions.router)
     app.include_router(web_workflow.router)
     app.mount("/static", StaticFiles(directory=WEB_STATIC_DIR), name="static")
+    web.use_company(settings.company_name)
     return app
 
 
