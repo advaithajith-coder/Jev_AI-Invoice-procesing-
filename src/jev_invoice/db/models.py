@@ -152,6 +152,9 @@ class PurchaseOrder(TimestampMixin, Base):
     status: Mapped[PurchaseOrderStatus] = mapped_column(enum_column(PurchaseOrderStatus))
     issued_date: Mapped[date] = mapped_column(Date)
     total_amount: Mapped[Decimal] = mapped_column(Money)
+    # Goods: invoices are matched to deliveries too (three-way). Services, subscriptions and
+    # retainers: matched to the order only (two-way); nothing is received.
+    needs_receiving: Mapped[bool] = mapped_column(default=True, server_default=true())
 
     vendor: Mapped[Vendor] = relationship(back_populates="purchase_orders")
     lines: Mapped[list["PurchaseOrderLine"]] = relationship(

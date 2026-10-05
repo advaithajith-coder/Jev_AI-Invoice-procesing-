@@ -57,11 +57,12 @@ PO_COLUMNS = (
     "quantity",
     "unit_price",
     "gl_account",
+    "needs_receiving",
 )
 PO_REQUIRED = {"po_number", "vendor", "issued_date", "description", "quantity", "unit_price"}
 PO_TEMPLATE = (
     ",".join(PO_COLUMNS)
-    + "\nPO-2001,Acme Supplies Inc,2026-10-01,USD,Copier paper case of 10 reams,20,24.99,6000"
+    + "\nPO-2001,Acme Supplies Inc,2026-10-01,USD,Copier paper case of 10 reams,20,24.99,6000,yes"
     + "\nPO-2001,Acme Supplies Inc,2026-10-01,USD,Toner cartridge black,4,89.50,6000\n"
 )
 
@@ -169,6 +170,7 @@ class CsvImporter:
                         issued_date=date.fromisoformat(first.get("issued_date", "").strip()),
                         currency=first.get("currency") or None,
                         lines=lines,
+                        needs_receiving=_yes(first.get("needs_receiving"), default=True),
                     )
                 )
             except (ValidationError, ValueError) as exc:
@@ -251,3 +253,15 @@ def _explain(exc: Exception) -> str:
             for error in exc.errors()
         )
     return str(exc)
+
+
+def _yes(value: str | None, *, default: bool) -> bool:
+    """yes/no, true/false, 1/0 (any case); blank means *default*."""
+    text = (value or "").strip().lower()
+    if not text:
+        return default
+    if text in ("yes", "y", "true", "1"):
+        return True
+    if text in ("no", "n", "false", "0"):
+        return False
+    raise ValueError(f"needs_receiving must be yes or no, not '{value}'")

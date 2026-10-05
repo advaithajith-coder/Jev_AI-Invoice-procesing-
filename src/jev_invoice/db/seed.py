@@ -108,6 +108,7 @@ async def seed(session: AsyncSession, settings: Settings) -> dict[str, int]:
                 "status": po.status,
                 "issued_date": po.issued_date,
                 "total_amount": po.total,
+                "needs_receiving": po.needs_receiving,
             }
         )
         for line_no, line in enumerate(po.lines, start=1):

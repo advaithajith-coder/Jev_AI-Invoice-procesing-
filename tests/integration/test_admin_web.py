@@ -93,6 +93,7 @@ def test_create_po_receive_and_close_from_the_pages(client: TestClient) -> None:
             "vendor_id": vendor_id,
             "issued_date": "2026-09-20",
             "lines": "Office cleaning, October | 1 | 450.00\nWindow cleaning | 2 | 75 | 6400",
+            "needs_receiving": "1",  # the box is ticked by default on the form
             "person": "Maya",
         },
     ).split("?")[0]
@@ -134,7 +135,8 @@ def test_po_list_shows_seed_orders(client: TestClient) -> None:
     page = client.get("/purchase-orders").text
 
     assert "PO-1003" in page and "Fully received" in page
-    assert "PO-1005" in page and "Open, nothing received" in page
+    assert "PO-1002" in page and "Partly received" in page
+    assert "PO-1005" in page and "Open, no receiving" in page  # a campaign: a service
 
 
 def test_export_page_creates_file_and_marks_invoices(

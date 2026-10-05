@@ -154,7 +154,12 @@ def rules_context(settings: Settings, approval_limit: Decimal) -> dict[str, Any]
                 f" or {settings.po_tolerance_max_amount:,.2f} {base} of the PO, whichever is"
                 " smaller.",
             ),
-            ("Quantities", "Units billed so far are no more than were received and ordered."),
+            (
+                "Quantities",
+                "Units billed so far are no more than were ordered and, when the PO needs"
+                " receiving (goods), no more than were received: a three-way match. A PO for"
+                " services needs no receiving and is matched to the order only (two-way).",
+            ),
         ],
         "thresholds": [
             ("No risk", f"A risk answer of {t.risk_clear:.0%} or less."),

@@ -62,7 +62,9 @@ async def _context(request: Request, pos: POsDep, session: SessionDep) -> dict[s
     summaries = [
         s
         for s in await pos.list_all()
-        if s.po.status in _OPEN and any(item.outstanding > 0 for item in s.lines)
+        if s.po.needs_receiving
+        and s.po.status in _OPEN
+        and any(item.outstanding > 0 for item in s.lines)
     ]
     waiting = list(
         await session.scalars(

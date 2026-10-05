@@ -3,7 +3,8 @@
 Scenarios built in for later milestones:
 - PO-1001 fully received          → clean invoice can auto-pay
 - PO-1002, PO-1008 part received  → invoice for the full amount should be held or short-paid
-- PO-1005 not received            → invoice should wait for delivery
+- PO-1004 hosting, PO-1005 campaign and PO-1007 IT retainer are services: matched to the
+  order only (two-way), nothing is received
 - PO-1009 cancelled               → any invoice against it is suspicious
 - Old Mill Stationers on hold, Vortex Trading blocked → vendor-status checks
 - Acme Supplies has known bank details → a changed account on an invoice is a fraud signal
@@ -85,6 +86,8 @@ class PurchaseOrderSeed:
     status: PurchaseOrderStatus
     lines: tuple[POLineSeed, ...]
     receipts: tuple[ReceiptSeed, ...] = field(default_factory=tuple)
+    # False for services: invoices are matched to the order only (two-way).
+    needs_receiving: bool = True
 
     @property
     def total(self) -> Decimal:
@@ -148,13 +151,14 @@ PURCHASE_ORDERS: tuple[PurchaseOrderSeed, ...] = (
         (ReceiptSeed("GRN-5003", date(2026, 9, 4), {1: D("50"), 2: D("12")}),),
     ),
     PurchaseOrderSeed(
-        "PO-1004", "brightline", date(2026, 9, 1), PurchaseOrderStatus.RECEIVED,
+        "PO-1004", "brightline", date(2026, 9, 1), PurchaseOrderStatus.OPEN,
         (POLineSeed("Managed cloud hosting, September 2026", D("1"), D("3200.00"), "5000"),),
-        (ReceiptSeed("GRN-5004", date(2026, 9, 30), {1: D("1")}),),
+        needs_receiving=False,
     ),
     PurchaseOrderSeed(
         "PO-1005", "pixelforge", date(2026, 9, 10), PurchaseOrderStatus.OPEN,
         (POLineSeed("Q4 product launch campaign: strategy, creative and paid social", D("1"), D("7500.00"), "6200"),),
+        needs_receiving=False,
     ),
     PurchaseOrderSeed(
         "PO-1006", "northline", date(2026, 9, 2), PurchaseOrderStatus.RECEIVED,
@@ -162,9 +166,9 @@ PURCHASE_ORDERS: tuple[PurchaseOrderSeed, ...] = (
         (ReceiptSeed("GRN-5006", date(2026, 9, 28), {1: D("40")}),),
     ),
     PurchaseOrderSeed(
-        "PO-1007", "clearpath", date(2026, 9, 15), PurchaseOrderStatus.RECEIVED,
+        "PO-1007", "clearpath", date(2026, 9, 15), PurchaseOrderStatus.OPEN,
         (POLineSeed("IT support retainer, Q4 2026 (October to December)", D("1"), D("2400.00"), "6020"),),
-        (ReceiptSeed("GRN-5007", date(2026, 10, 1), {1: D("1")}),),
+        needs_receiving=False,
     ),
     PurchaseOrderSeed(
         "PO-1008", "meridian", date(2026, 9, 5), PurchaseOrderStatus.PARTIALLY_RECEIVED,

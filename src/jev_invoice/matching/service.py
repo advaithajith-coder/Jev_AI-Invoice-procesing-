@@ -417,7 +417,7 @@ class MatchingService:
 
             billed[po_line.id] += quantity
             total_billed = billed[po_line.id]
-            if total_billed > received[po_line.id]:
+            if po.needs_receiving and total_billed > received[po_line.id]:
                 quantity_issues.append(line.description)
                 result.add(
                     ReasonCode.QUANTITY_VARIANCE,
@@ -447,14 +447,24 @@ class MatchingService:
             if price_issues
             else f"Within {self.tolerance_text}",
         )
-        result.check(
-            "line_received",
-            "Every line was delivered",
-            not quantity_issues,
-            ", ".join(quantity_issues) + ": more billed than delivered or ordered"
-            if quantity_issues
-            else "Billed quantities are within what was delivered",
-        )
+        if po.needs_receiving:
+            result.check(
+                "line_received",
+                "Every line was delivered",
+                not quantity_issues,
+                ", ".join(quantity_issues) + ": more billed than delivered or ordered"
+                if quantity_issues
+                else "Billed quantities are within what was delivered",
+            )
+        else:
+            result.check(
+                "line_received",
+                "Billed within what was ordered",
+                not quantity_issues,
+                ", ".join(quantity_issues) + ": more billed than ordered"
+                if quantity_issues
+                else f"Two-way match: {po.po_number} needs no receiving",
+            )
         return not unmatched and checked_all
 
     async def _match_totals(
@@ -486,6 +496,14 @@ class MatchingService:
             f"Billed {claimed:,.2f} (this invoice {net:,.2f} + earlier {already:,.2f})"
             f" of {po.total_amount:,.2f} ordered",
         )
+        if not po.needs_receiving:
+            result.check(
+                "received",
+                "Delivered before being billed",
+                None,
+                f"Not needed: {po.po_number} is matched to the order only",
+            )
+            return
         received = sum(
             (
                 line.quantity_received * line.purchase_order_line.unit_price

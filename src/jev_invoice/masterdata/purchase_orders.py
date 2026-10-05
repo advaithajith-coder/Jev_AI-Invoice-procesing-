@@ -60,6 +60,8 @@ class POCreate(BaseModel):
     issued_date: date
     currency: str | None = None
     lines: list[POLineIn] = Field(min_length=1, max_length=200)
+    # Goods: invoices are also matched to deliveries. Services: matched to the order only.
+    needs_receiving: bool = True
 
     @field_validator("currency")
     @classmethod
@@ -167,6 +169,7 @@ class PurchaseOrderService:
             currency=data.currency or vendor.default_currency,
             status=PurchaseOrderStatus.OPEN,
             issued_date=data.issued_date,
+            needs_receiving=data.needs_receiving,
             total_amount=sum(
                 ((line.quantity * line.unit_price).quantize(_CENT) for line in lines), Decimal(0)
             ),
@@ -180,17 +183,43 @@ class PurchaseOrderService:
             entity_type="purchase_order",
             entity_id=po.id,
             actor=actor,
-            data={"po_number": po.po_number, "vendor": vendor.name, "total": str(po.total_amount)},
+            data={
+                "po_number": po.po_number,
+                "vendor": vendor.name,
+                "total": str(po.total_amount),
+                "needs_receiving": po.needs_receiving,
+            },
         )
         if commit:
             await self._session.commit()
         return po
+
+    async def set_needs_receiving(self, po_id: uuid.UUID, needs: bool, *, actor: str) -> None:
+        """Goods (matched to deliveries) or services (matched to the order only)."""
+        summary = await self.get(po_id)
+        po = summary.po
+        if po.needs_receiving == needs:
+            return
+        po.needs_receiving = needs
+        audit.record(
+            self._session,
+            action="po.receiving_changed",
+            entity_type="purchase_order",
+            entity_id=po.id,
+            actor=actor,
+            data={"needs_receiving": needs},
+        )
+        await self._session.commit()
 
     async def record_receipt(self, po_id: uuid.UUID, data: ReceiptCreate) -> GoodsReceipt:
         summary = await self.get(po_id)
         po = summary.po
         if po.status in _CLOSED:
             raise ConflictError(f"{po.po_number} is {po.status}; deliveries cannot be recorded.")
+        if not po.needs_receiving:
+            raise ConflictError(
+                f"{po.po_number} is matched to the order only (services); nothing is received."
+            )
         by_id = {item.line.id: item for item in summary.lines}
         for line_id, quantity in data.quantities.items():
             item = by_id.get(line_id)

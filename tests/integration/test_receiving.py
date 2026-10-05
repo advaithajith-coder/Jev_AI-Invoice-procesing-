@@ -5,10 +5,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from jev_invoice.config import Settings
 from jev_invoice.db.seed import seed_id
+from jev_invoice.domain.enums import ReasonCode
 from tests.fakes import acme_invoice_fields, install_fakes, wire_answers
+from tests.integration.test_matching import _codes, _match
 
 PO_1008 = seed_id("po", "PO-1008")  # 12 hours of contract review ordered, 8 received
 PO_1008_LINE = seed_id("po_line", "PO-1008:1")
@@ -47,7 +50,8 @@ def test_receiving_lists_what_is_still_to_come(client: TestClient) -> None:
     waiting, recent = page.split("Recent deliveries", 1)
 
     assert "PO-1008" in waiting and "Meridian Legal LLP" in waiting
-    assert "PO-1005" in waiting  # ordered, nothing received yet
+    assert "PO-1002" in waiting  # one of two servers delivered
+    assert "PO-1005" not in waiting  # a marketing campaign: a service, nothing to receive
     assert "PO-1001" not in waiting  # fully received: nothing to come
     assert "GRN-5001" in recent
     assert f'name="qty_{PO_1008_LINE}"' in page
@@ -100,3 +104,99 @@ def test_more_than_is_still_to_come_is_refused(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert "only 4 is still outstanding" in response.text
+
+
+# ── Orders that need no receiving (services) ──────────────────────────────────
+
+BRIGHTLINE = {
+    "vendor_name": "Brightline Cloud Services Inc",
+    "invoice_number": "BCS-1",
+    "po_reference": "PO-1004",  # hosting: a service, nothing is received
+    "bank_account": "Routing 021000021 Account 4417 2209",
+    "subtotal": "3200.00",
+    "total": "3200.00",
+}
+HOSTING = {"description": "Managed cloud hosting, September 2026", "unit_price": "3200.00"}
+
+
+async def test_a_service_order_is_matched_to_the_order_only(
+    session: AsyncSession, settings: Settings
+) -> None:
+    result = await _match(
+        session,
+        settings,
+        **BRIGHTLINE,
+        line_items=[{**HOSTING, "quantity": 1, "amount": "3200.00"}],
+    )
+
+    assert _codes(result) == []  # nothing was received, and nothing needs to be
+    checks = {check.name: check for check in result.checks}
+    assert checks["line_received"].label == "Billed within what was ordered"
+    assert "Two-way match" in checks["line_received"].detail
+
+
+async def test_a_service_order_still_catches_billing_more_than_ordered(
+    session: AsyncSession, settings: Settings
+) -> None:
+    result = await _match(
+        session,
+        settings,
+        **{**BRIGHTLINE, "subtotal": "6400.00", "total": "6400.00"},
+        line_items=[{**HOSTING, "quantity": 2, "amount": "6400.00"}],
+    )
+
+    assert _codes(result) == [ReasonCode.QUANTITY_VARIANCE]
+    assert "only 1 ordered" in result.findings[0].message
+
+
+def test_receiving_can_be_switched_off_and_deliveries_are_then_refused(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        f"/purchase-orders/{PO_1008}/receiving", data={"person": "Sam"}, follow_redirects=False
+    )
+    assert response.status_code == 303
+
+    page = client.get(f"/purchase-orders/{PO_1008}").text
+    assert "Open, no receiving" in page and "Receive now" not in page
+    assert "PO-1008" not in client.get("/receiving").text.split("Recent deliveries")[0]
+    refused = _deliver(client, "1")
+    assert refused.status_code == 400
+    assert "matched to the order only" in refused.text
+
+
+def test_new_po_needs_receiving_unless_unticked(client: TestClient) -> None:
+    vendor = str(seed_id("vendor", "clearpath"))
+    for number, extra in (("PO-7001", {"needs_receiving": "1"}), ("PO-7002", {})):
+        client.post(
+            "/purchase-orders",
+            data={
+                "po_number": number,
+                "vendor_id": vendor,
+                "issued_date": "2026-10-01",
+                "lines": "Helpdesk hours | 10 | 95.00",
+                "person": "Sam",
+                **extra,
+            },
+        )
+    waiting = client.get("/receiving").text.split("Recent deliveries")[0]
+
+    assert "PO-7001" in waiting  # ticked: goods, waits for a delivery
+    assert "PO-7002" not in waiting  # unticked: a service
+
+
+def test_po_import_reads_needs_receiving(client: TestClient) -> None:
+    csv = (
+        "po_number,vendor,issued_date,currency,description,quantity,unit_price,gl_account,"
+        "needs_receiving\n"
+        "PO-8001,Clearpath IT Support LLC,2026-10-01,USD,Network audit,1,1800.00,6020,no\n"
+        "PO-8002,Acme Supplies Inc,2026-10-01,USD,Toner cartridge,4,89.50,6000,\n"
+    )
+    client.post(
+        "/purchase-orders/import",
+        files={"file": ("pos.csv", csv.encode(), "text/csv")},
+        data={"person": "Sam"},
+    )
+    waiting = client.get("/receiving").text.split("Recent deliveries")[0]
+
+    assert "PO-8002" in waiting and "PO-8001" not in waiting

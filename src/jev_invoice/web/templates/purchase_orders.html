@@ -26,13 +26,14 @@
     <tbody>
       {% for s in summaries %}
       {% set label, tone = PO_STATUSES.get(s.po.status, (s.po.status, "muted")) %}
+      {% if not s.po.needs_receiving and s.po.status not in ("closed", "cancelled") %}{% set label, tone = ("Open, no receiving", "confirm") %}{% endif %}
       <tr>
         <td class="c-main"><a class="rowlink" href="/purchase-orders/{{ s.po.id }}">{{ s.po.po_number }}</a>
           <span class="muted small">issued {{ s.po.issued_date | date }}</span></td>
         <td class="c-ref">{{ s.po.vendor.name }}</td>
         <td class="c-tag"><span class="tag tag--{{ tone }}">{{ label }}</span></td>
         <td class="c-total num">{{ s.po.total_amount | money(s.po.currency) }}</td>
-        <td class="num">{{ s.received_value | money }}</td>
+        <td class="num">{% if s.po.needs_receiving %}{{ s.received_value | money }}{% else %}<span class="muted small">not needed</span>{% endif %}</td>
         <td class="num">{{ s.invoiced_value | money }}</td>
       </tr>
       {% endfor %}
@@ -69,6 +70,9 @@
       <div class="field"><label for="lines">Lines</label>
         <textarea id="lines" name="lines" rows="5" placeholder="Toner cartridge, black | 12 | 89.50 | 6000&#10;A4 paper, box of 5 reams | 20 | 24.99" required>{{ f.get('lines', '') }}</textarea>
         <p class="muted small">One line per item: description | quantity | unit price | expense account (optional, defaults to the vendor's).</p></div>
+      <div class="field field--check"><label><input name="needs_receiving" type="checkbox" value="1" {% if not f.get('submitted') or f.get('needs_receiving') %}checked{% endif %}>
+        Needs receiving</label>
+        <p class="muted small">Ticked for goods: invoices are cross-checked against what was delivered (record deliveries on Receiving). Untick for services, subscriptions and retainers: invoices are checked against the order only.</p></div>
       {{ person_field(person, "person-po") }}
       <button class="button button--primary" type="submit">Create purchase order</button>
     </form>
@@ -77,7 +81,8 @@
   <section class="panel" aria-labelledby="import-title">
     <h2 id="import-title">Import from CSV</h2>
     <p class="muted small">One row per line; rows with the same po_number become one PO. Columns:
-      po_number, vendor, issued_date, currency, description, quantity, unit_price, gl_account.
+      po_number, vendor, issued_date, currency, description, quantity, unit_price, gl_account,
+      needs_receiving (yes or no; blank means yes).
       <a href="/purchase-orders/import-template.csv">Download a template</a>.</p>
     <p class="muted small">If any row has a problem, nothing is imported.</p>
     {% if imported is defined and imported is not none %}<p class="banner banner--ok" role="status">Imported {{ imported }} purchase order{{ "s" if imported != 1 }}.</p>{% endif %}

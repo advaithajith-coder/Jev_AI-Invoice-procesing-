@@ -273,6 +273,7 @@ AUDIT_ACTIONS: dict[str, str] = {
     "invoice.payment_recorded": "Payment recorded",
     "invoice.coded": "Lines coded by Jev",
     "invoice.rechecked": "Checked again",
+    "po.receiving_changed": "Receiving setting changed",
 }
 
 _METHODS = {"ach": "ACH", "check": "check", "wire": "wire", "card": "card"}

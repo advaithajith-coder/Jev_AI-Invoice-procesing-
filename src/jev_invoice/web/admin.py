@@ -65,6 +65,7 @@ NOTICES = {
     "bank_changed": "Bank account changed and recorded in the history.",
     "po_created": "Purchase order created.",
     "delivery": "Delivery recorded. Invoices waiting on this order were checked again.",
+    "receiving_changed": "Saved. Invoices from now on are matched this way.",
     "po_closed": "Purchase order closed.",
     "po_cancelled": "Purchase order cancelled.",
     "account_created": "Account added. Jev can now code invoice lines to it.",
@@ -392,6 +393,7 @@ async def create_po(
     issued_date: Annotated[str, Form()] = "",
     currency: Annotated[str, Form()] = "",
     lines: Annotated[str, Form()] = "",
+    needs_receiving: Annotated[str, Form()] = "",
     person: Annotated[str, Form()] = "",
 ) -> Response:
     try:
@@ -402,6 +404,7 @@ async def create_po(
             issued_date=date.fromisoformat(issued_date) if issued_date else today_utc(),
             currency=currency or None,
             lines=_parse_lines(lines),
+            needs_receiving=bool(needs_receiving),
         )
         po = await pos.create(data, actor=actor)
     except (AppError, ValidationError, ValueError) as exc:
@@ -421,6 +424,8 @@ async def create_po(
                     "issued_date": issued_date,
                     "currency": currency,
                     "lines": lines,
+                    "needs_receiving": needs_receiving,
+                    "submitted": "1",
                 },
                 "person": person,
             },
@@ -517,6 +522,26 @@ async def record_delivery(
     )
     approved = f"&approved={','.join(rechecked.approved)}" if rechecked.approved else ""
     return _redirect(f"/purchase-orders/{po_id}?notice=delivery{approved}", person.strip())
+
+
+@router.post("/purchase-orders/{po_id}/receiving", response_model=None)
+async def change_po_receiving(
+    request: Request,
+    po_id: uuid.UUID,
+    session: SessionDep,
+    pos: POsDep,
+    needs_receiving: Annotated[str, Form()] = "",
+    person: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        actor = _person(person)
+        await pos.set_needs_receiving(po_id, bool(needs_receiving), actor=actor)
+    except AppError as exc:
+        await session.rollback()
+        context = await _po_context(session, pos, po_id)
+        context.update(error=exc.message, person=person)
+        return _render(request, "purchase_order.html", context, max(exc.status_code, 400))
+    return _redirect(f"/purchase-orders/{po_id}?notice=receiving_changed", actor)
 
 
 @router.post("/purchase-orders/{po_id}/status", response_model=None)
