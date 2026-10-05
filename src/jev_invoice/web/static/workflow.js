@@ -243,3 +243,23 @@
   requestAnimationFrame(frame);
   setTimeout(refresh, 3000);
 })();
+
+// The (i) on a step opens a dialog with how that step works. Click outside it to close.
+(() => {
+  const open = (button) => document.getElementById(`info-${button.dataset.info}`)?.showModal();
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-info]");
+    if (button) {
+      open(button);
+      return;
+    }
+    if (event.target instanceof HTMLDialogElement) event.target.close();
+  });
+  document.addEventListener("keydown", (event) => {
+    const button = event.target.closest?.("[data-info]");
+    if (button && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      open(button);
+    }
+  });
+})();

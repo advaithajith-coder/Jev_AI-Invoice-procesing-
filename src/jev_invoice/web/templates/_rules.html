@@ -1,0 +1,64 @@
+{#- How each step works, one dialog per flowchart node, opened from the ⓘ on the node.
+    Built from the running configuration (web/rules.py). -#}
+{% for key, (title, who, what) in r.info.items() %}
+<dialog class="wf-dialog" id="info-{{ key }}" aria-labelledby="info-{{ key }}-title">
+  <div class="wf-dialog__head">
+    <div>
+      <h2 id="info-{{ key }}-title">{{ title }}</h2>
+      <p class="wf-dialog__who">Done by <b>{{ who }}</b></p>
+    </div>
+    <form method="dialog"><button class="button wf-dialog__close" type="submit" aria-label="Close">✕</button></form>
+  </div>
+  <p>{{ what }}</p>
+
+  {% if key == "vision" %}
+    <p class="label">Instructions to the model</p>
+    <pre class="code">{{ r.vision_prompt }}</pre>
+
+  {% elif key == "extract" %}
+    <p class="label">Instructions to the model</p>
+    <pre class="code">{{ r.extraction_prompt }}</pre>
+    <p class="label">Followed by the document</p>
+    <pre class="code">{{ r.extraction_input }}</pre>
+
+  {% elif key == "doc" %}
+    <dl class="fields fields--small">
+      {% for name, rule in r.document_checks %}<dt>{{ name }}</dt><dd>{{ rule }}</dd>{% endfor %}
+    </dl>
+
+  {% elif key == "md" %}
+    <dl class="fields fields--small">
+      {% for name, rule in r.vendor_checks %}<dt>{{ name }}</dt><dd>{{ rule }}</dd>{% endfor %}
+    </dl>
+
+  {% elif key == "jev" %}
+    <ul class="rules__questions">
+      {% for name, text, options in r.jev_questions %}
+      <li><span class="typed">{{ name }}</span> {{ text }}
+        {% if options %}<ul class="rules__options">{% for option in options %}<li>{{ option }}</li>{% endfor %}</ul>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    <p class="label">How the answers are read</p>
+    <dl class="fields fields--small">
+      {% for name, rule in r.thresholds %}<dt>{{ name }}</dt><dd>{{ rule }}</dd>{% endfor %}
+    </dl>
+    <p class="muted small">Jev reads only the document's text, never the vendor list, POs or bank records.</p>
+
+  {% elif key == "coding" %}
+    <p class="label">Question sent to Jev for each line</p>
+    <p class="typed">{{ r.coding_question }}</p>
+    <p class="muted small">One option per active account: its name and the description on the Chart of accounts page.</p>
+
+  {% elif key == "policy" %}
+    <p class="muted small">Every reason found is recorded. The outcome comes from the first group with a reason.</p>
+    <ol class="rules__policy">
+      {% for priority, action, tone, reasons in r.policy %}
+      <li><p><span class="tag tag--{{ tone }}">{{ action }}</span></p>
+        <dl class="fields fields--small">
+          {% for reason in reasons %}<dt>{{ reason.title }}</dt><dd>{{ reason.guidance }}</dd>{% endfor %}
+        </dl></li>
+      {% endfor %}
+    </ol>
+  {% endif %}
+</dialog>
+{% endfor %}

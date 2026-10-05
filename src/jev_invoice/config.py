@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # Original uploads are stored here, content-addressed by SHA-256.
     storage_dir: Path = Path("./data/files")
     # Screen uploads return at once and are processed in the background (watch it live on
-    # the invoice's journey page). The JSON API always processes before it responds.
+    # the invoice's page, step by step). The JSON API always processes before it responds.
     background_processing: bool = True
     max_upload_bytes: int = 10 * 1024 * 1024
 

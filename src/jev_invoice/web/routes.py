@@ -50,6 +50,7 @@ from jev_invoice.pipeline.review import ReviewService
 from jev_invoice.pipeline.service import InvoicePipeline, invoice_query
 from jev_invoice.web import labels
 from jev_invoice.web.lifecycle import lifecycle
+from jev_invoice.web.steps import load_steps
 
 router = APIRouter(include_in_schema=False)
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -213,7 +214,7 @@ async def upload(
         if not result.already_received:
             runner = request.app.state.runner
             if runner is not None:
-                runner.submit(result.invoice_id)  # watch it live on the journey page
+                runner.submit(result.invoice_id)  # watch the steps live on its page
             else:
                 await pipeline.process(result.invoice_id)
     except AppError as exc:
@@ -224,7 +225,7 @@ async def upload(
             request, "inbox.html", context, status_code=max(exc.status_code, 400)
         )
     suffix = "?notice=duplicate" if result.already_received else ""
-    return RedirectResponse(f"/invoices/{result.invoice_id}/journey{suffix}", status_code=303)
+    return RedirectResponse(f"/invoices/{result.invoice_id}{suffix}", status_code=303)
 
 
 # ── Review queue ──────────────────────────────────────────────────────────────
@@ -287,6 +288,18 @@ async def invoice_context(
         if credit_note
         else None
     )
+    jev_rows = _jev_rows(decision.jev_answers if decision else None)
+    gl_accounts = list(
+        await session.scalars(select(GLAccount).where(GLAccount.is_active).order_by(GLAccount.code))
+    )
+    steps = await load_steps(
+        session,
+        invoice,
+        decision=decision,
+        open_task=open_task,
+        jev_rows=jev_rows,
+        account_names={account.code: account.name for account in gl_accounts},
+    )
     return {
         "balance": balance,
         "is_credit_note": credit_note,
@@ -312,17 +325,14 @@ async def invoice_context(
             await review_warnings(session, invoice, decision, reviewer) if open_task else []
         ),
         "events": events,
-        "jev_rows": _jev_rows(decision.jev_answers if decision else None),
+        "jev_rows": jev_rows,
+        "st": steps,
         "document_text": _document_text(request, invoice),
         "is_pdf": invoice.content_type == "application/pdf",
         "is_image": invoice.content_type in BROWSER_IMAGE_TYPES,
         "proposes_reject": bool(decision and decision.action == DecisionAction.REJECT_DOCUMENT),
         "reviewer": request.cookies.get(REVIEWER_COOKIE, ""),
-        "gl_accounts": list(
-            await session.scalars(
-                select(GLAccount).where(GLAccount.is_active).order_by(GLAccount.code)
-            )
-        ),
+        "gl_accounts": gl_accounts,
         "notice": NOTICES.get(request.query_params.get("notice", "")),
         "nav": "review" if open_task else "inbox",
     }
@@ -334,6 +344,21 @@ async def invoice_page(
 ) -> HTMLResponse:
     context = await invoice_context(request, session, invoice_id)
     return templates.TemplateResponse(request, "invoice.html", context)
+
+
+@router.get("/invoices/{invoice_id}/steps", response_class=HTMLResponse)
+async def invoice_steps(
+    request: Request, invoice_id: uuid.UUID, session: SessionDep
+) -> HTMLResponse:
+    """Just the steps, polled every second while the invoice is processed."""
+    context = await invoice_context(request, session, invoice_id)
+    return templates.TemplateResponse(request, "_steps.html", context)
+
+
+@router.get("/invoices/{invoice_id}/journey")
+async def old_journey_page(invoice_id: uuid.UUID) -> RedirectResponse:
+    """The journey is now the steps on the invoice page."""
+    return RedirectResponse(f"/invoices/{invoice_id}", status_code=308)
 
 
 @router.post("/invoices/{invoice_id}/review", response_model=None)

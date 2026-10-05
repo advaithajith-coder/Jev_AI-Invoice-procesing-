@@ -57,7 +57,7 @@ def test_live_data_follows_real_invoices(
     assert live["split"]["auto"] == 1.0
     assert live["avg_ms"]["extract"] >= 0
     assert live["recent"][0]["number"] == "AS-20431"
-    assert live["recent"][0]["url"] == f"/invoices/{invoice['id']}/journey"
+    assert live["recent"][0]["url"] == f"/invoices/{invoice['id']}"
     page = client.get("/workflow").text
     assert "1 now" in page  # the Approved desk shows its count
     assert "AS-20431" in page

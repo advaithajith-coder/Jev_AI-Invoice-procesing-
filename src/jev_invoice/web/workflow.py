@@ -19,10 +19,12 @@ from sqlalchemy import func, select
 from jev_invoice.api.dependencies import SessionDep
 from jev_invoice.db.models import Invoice, PipelineStep
 from jev_invoice.domain.enums import DecisionAction, InvoiceStatus
+from jev_invoice.masterdata.rules import RulesService
 from jev_invoice.pipeline.service import IN_PROGRESS, invoice_query
 from jev_invoice.pipeline.steps import STEPS
 from jev_invoice.web import labels
 from jev_invoice.web.routes import ago, templates
+from jev_invoice.web.rules import rules_context
 
 router = APIRouter(include_in_schema=False)
 
@@ -126,7 +128,7 @@ async def _position(session: SessionDep, invoice: Invoice) -> dict[str, Any]:
         "desk": desk,
         "desk_title": STEPS[desk][1],
         "summary": row.summary if row else "",
-        "url": f"/invoices/{invoice.id}/journey",
+        "url": f"/invoices/{invoice.id}",
     }
 
 
@@ -139,7 +141,7 @@ def _outcome(invoice: Invoice) -> dict[str, Any]:
         "status": label,
         "tone": tone,
         "ago": ago(invoice.received_at),
-        "url": f"/invoices/{invoice.id}/journey",
+        "url": f"/invoices/{invoice.id}",
     }
 
 
@@ -166,6 +168,7 @@ async def workflow_page(request: Request, session: SessionDep) -> HTMLResponse:
             # Who handles the AI desks, as configured: the map should name the real models.
             "vision_label": f"{vision.split(':')[0]}, local",
             "extract_label": settings.groq_model.split("/")[-1],
+            "r": rules_context(settings, await RulesService(session, settings).approval_limit()),
         },
     )
 

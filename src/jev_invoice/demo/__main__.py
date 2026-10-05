@@ -211,7 +211,7 @@ async def main() -> int:
     if missed:
         print(
             f"{len(missed)} of {len(outcomes)} samples did not land as written (marked !!)."
-            " The models are live; run it again, or check those invoices' journeys."
+            " The models are live; run it again, or check those invoices' steps."
         )
     else:
         print(f"All {len(outcomes)} samples landed as expected.")

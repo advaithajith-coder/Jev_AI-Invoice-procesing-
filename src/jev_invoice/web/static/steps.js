@@ -1,17 +1,18 @@
-// Journey page: while the invoice is processing, fetch the journey again every second
-// and swap it in. Stops when the server says it is finished. Keeps open <details> open.
+// Invoice page: while the invoice is processing, fetch its steps every second and swap
+// them in. When processing finishes, reload once so the decision, payment and review
+// sections appear. Keeps open steps open.
 (() => {
-  const box = document.querySelector("[data-journey]");
+  const box = document.querySelector("[data-steps]");
   if (!box) return;
   const url = box.dataset.liveUrl;
 
   const finished = () => {
-    const journey = box.querySelector(".journey");
-    return !journey || journey.dataset.finished === "true";
+    const steps = box.querySelector(".steps");
+    return !steps || steps.dataset.finished === "true";
   };
+  if (finished()) return;
 
   const tick = async () => {
-    if (finished()) return;
     const open = [...box.querySelectorAll("details[open]")].map((d) => d.id);
     try {
       const response = await fetch(url, { headers: { Accept: "text/html" } });
@@ -24,6 +25,10 @@
       }
     } catch (error) {
       // Network blip: try again on the next tick.
+    }
+    if (finished()) {
+      window.location.reload();
+      return;
     }
     setTimeout(tick, 1000);
   };

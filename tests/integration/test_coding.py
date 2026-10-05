@@ -54,7 +54,7 @@ def _process(
 
 
 def _coding_step(client: TestClient, invoice_id: str) -> str:
-    page: str = client.get(f"/invoices/{invoice_id}/journey").text
+    page: str = client.get(f"/invoices/{invoice_id}").text
     return page
 
 
@@ -82,7 +82,7 @@ def test_confident_jev_choice_is_used(
     assert "6100" in question["criteria"] and "9999" not in question["criteria"]
     assert "chosen by Jev" in page and "Jev 93% sure" in page
     assert 'value="6100" selected' in page
-    assert "Coded" in _coding_step(client, body["id"])
+    assert "6100 Legal Fees (chosen by Jev)" in _coding_step(client, body["id"])
 
 
 def test_unsure_jev_falls_back_to_the_vendor_default(

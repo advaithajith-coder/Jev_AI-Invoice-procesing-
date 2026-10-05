@@ -73,10 +73,10 @@ def test_invoice_page_shows_description_and_additional_information(
     body = _process(app, client, seeded_settings)
 
     page = client.get(f"/invoices/{body['id']}").text
-    journey = client.get(f"/invoices/{body['id']}/journey").text
+    journey = client.get(f"/invoices/{body['id']}/steps").text
 
     assert "Office paper and printer supplies, October 2026" in page
-    assert "Additional information" in page
+    assert "Payment terms" in page  # step 4 shows everything that was read
     assert "2% 10, Net 30" in page
     assert "1.5% monthly finance charge" in page
     assert "Thank you for your business." in page

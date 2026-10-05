@@ -31,8 +31,7 @@ def _upload(
     assert response.status_code == 303, response.text
     location: str = response.headers["location"]
     assert location.startswith("/invoices/")
-    assert location.split("?")[0].endswith("/journey")
-    return location.split("?")[0].removesuffix("/journey")
+    return location.split("?")[0]
 
 
 def _task_id(page: str) -> str:
@@ -71,7 +70,7 @@ def test_upload_redirects_to_invoice_page_with_plain_language_reasons(
     assert "Needs budget approval" in page
     assert "No purchase order" in page  # reason title, not the raw code
     assert "NO_PURCHASE_ORDER" not in page
-    assert "Jev&#39;s judgment" in page or "Jev's judgment" in page
+    assert "Jev judgment" in page
     assert "USD 1,074.00" in page
     assert "account ending" in page and "6819" in page
 
@@ -243,8 +242,8 @@ def test_failed_extraction_explains_next_step(
 
     page = client.get(_upload(client)).text
 
-    assert "Could not be read" in page
-    assert "Enter this invoice by hand" in page
+    assert "could not be used" in page  # the extraction step says why
+    assert "Could not be read. Enter this invoice by hand" in page  # and the outcome what next
 
 
 def test_duplicate_upload_goes_to_existing_invoice(
@@ -259,7 +258,7 @@ def test_duplicate_upload_goes_to_existing_invoice(
         follow_redirects=False,
     )
 
-    assert response.headers["location"] == f"{first}/journey?notice=duplicate"
+    assert response.headers["location"] == f"{first}?notice=duplicate"
     assert len(provider.calls) == 1
 
 
@@ -290,7 +289,8 @@ def test_photo_page_shows_image_and_transcription(
     document = client.get(f"{path}/document")
 
     assert f'<img class="document__image" src="{path}/document"' in page
-    assert "What the vision model read" in page
+    assert "1 page(s) read" in page  # step 3, opening to the text it read
+    assert "INVOICE AS-20431" in page
     assert "Image transcribed" in page  # history
     assert document.headers["content-type"] == "image/jpeg"
     assert document.content == photo

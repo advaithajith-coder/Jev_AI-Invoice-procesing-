@@ -193,17 +193,19 @@ def build_coding_request(
         "lines": [{"description": line.description} for line in lines],
     }
     questions: dict[str, Question] = {
-        f"line_{line.line_no}": Choice(
-            instructions=(
-                f"Which account in the chart of accounts should the cost in "
-                f"`lines[{index}].description` be recorded in? Choose by what was bought, "
-                f"using the vendor and invoice description as context."
-            ),
-            criteria=options,
-        )
+        f"line_{line.line_no}": Choice(instructions=line_instructions(index), criteria=options)
         for index, line in enumerate(lines)
     }
     return state, questions
+
+
+def line_instructions(index: int) -> str:
+    """What Jev is asked for the line at *index* (the options are the active accounts)."""
+    return (
+        f"Which account in the chart of accounts should the cost in "
+        f"`lines[{index}].description` be recorded in? Choose by what was bought, "
+        f"using the vendor and invoice description as context."
+    )
 
 
 def question_text(line: InvoiceLine) -> str:

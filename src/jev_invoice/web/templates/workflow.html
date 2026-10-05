@@ -50,7 +50,9 @@
 </div>
 <p class="lede">Every step an invoice passes, from arrival to your accounting system. The moving markers
   follow the same splits as your last {{ w.sample }} invoice{{ "s" if w.sample != 1 }}. An invoice being
-  processed right now is marked with its number at the step it has reached.</p>
+  processed right now is marked with its number at the step it has reached. Press the
+  <span class="wf-info-hint" aria-hidden="true">i</span> on a step to see how it works: its
+  model, instructions and rules.</p>
 
 <div class="wf" data-workflow data-live-url="/workflow/live">
   <div class="wf-map">
@@ -89,6 +91,12 @@
             {%- if key in counts -%}{{ w.counts[counts[key]] }} now
             {%- elif step and w.avg_ms.get(step) is not none -%}avg {{ w.avg_ms[step] | duration }}{%- endif -%}
           </text>
+          {% if key in r.info %}
+          <g class="wf-info" data-info="{{ key }}" role="button" tabindex="0" aria-haspopup="dialog"
+             aria-label="How {{ title }} works" transform="translate(52 18)">
+            <circle r="9"/><text y="4" text-anchor="middle">i</text>
+          </g>
+          {% endif %}
         </g>
         {% endfor %}
       </g>
@@ -133,6 +141,7 @@
     </section>
   </div>
 </div>
+{% include "_rules.html" %}
 <script type="application/json" id="workflow-data">{{ w | tojson }}</script>
 <script src="{{ url_for('static', path='workflow.js') }}" defer></script>
 {% endblock %}

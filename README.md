@@ -66,9 +66,11 @@ uv run poe dev              # http://localhost:8000
 ```
 
 Open http://localhost:8000: upload an invoice, then decide it from the **Review queue**.
-Every invoice page shows the original, what was read, the checks, Jev's judgment, the
-decision in plain language, and the audit history. Approving an invoice blocked as possible
-fraud requires a written note on how it was verified.
+Every invoice page shows the original and one line per processing step, each opening to that
+step's output (what was read, every check, Jev's answers, the accounts, the reasons), then
+the decision form, payment and the audit history. How each step works (its model, the exact
+instructions and the rules) opens from the **i** on that step in the **Workflow** flowchart.
+Approving an invoice blocked as possible fraud requires a written note on how it was verified.
 
 | Endpoint | Purpose |
 |---|---|

@@ -23,7 +23,6 @@
   <p class="invoice-head__total">{% if invoice.total is not none %}<small>{{ invoice.currency }}</small>{{ invoice.total | money }}{% if invoice.fx_rate %}<span class="invoice-head__base">≈ {{ base_currency }} {{ invoice.in_base(invoice.total) | money }}</span>{% endif %}{% endif %}</p>
 </header>
 
-<p class="journey-cta"><a href="/invoices/{{ invoice.id }}/journey">See the journey: every step, model, check, time and cost</a></p>
 {% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
 {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
 
@@ -78,45 +77,12 @@
     {% endif %}
     <p class="muted small">{{ invoice.original_filename }}, received {{ invoice.received_at | ago }}{% if invoice.source == "email" and invoice.sender_email %} from {{ invoice.sender_email }}{% endif %}</p>
 
-    {% if invoice.transcribed_text %}
-    <section class="transcription" aria-labelledby="transcription-title">
-      <h2 id="transcription-title">What the vision model read</h2>
-      <p class="muted small">This was a scan or photo, so {{ invoice.transcription_model }} transcribed it before
-        anything else ran. Compare it with the image: a misread digit here becomes a wrong field below.</p>
-      <pre class="document__text">{{ invoice.transcribed_text }}</pre>
-    </section>
-    {% endif %}
   </section>
 
   <div class="details">
-    {% if decision %}
-    <section class="decision decision--{{ ACTIONS[decision.action][1] }}" aria-labelledby="decision-title">
-      <h2 id="decision-title">Decision</h2>
-      <p class="decision__action">{{ action_tag(decision.action) }}</p>
-      <p class="decision__band">{{ BANDS[decision.band] }}</p>
-
-      {% if decision.reason_codes %}
-      <ul class="reasons">
-        {% for code in decision.reason_codes %}
-        {% set r = reason(code) %}
-        <li class="reasons__item reasons__item--{{ r.tone }}">
-          <p class="reasons__title">{{ r.title }}</p>
-          {% for finding in decision.findings if finding.code == code %}
-            <p class="reasons__finding">{{ finding.message }}</p>
-          {% endfor %}
-          {% if r.guidance %}<p class="reasons__guidance">{{ r.guidance }}</p>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-    </section>
-    {% elif invoice.status == "failed" %}
-    <section class="decision decision--block" aria-labelledby="decision-title">
-      <h2 id="decision-title">Could not be read</h2>
-      <p>{{ invoice.error_message }}</p>
-      <p class="muted">Nothing was decided. Enter this invoice by hand or re-upload a clearer copy.</p>
-    </section>
-    {% endif %}
+    <div data-steps data-live-url="/invoices/{{ invoice.id }}/steps">
+      {% include "_steps.html" %}
+    </div>
 
     {% if is_credit_note %}
     <section class="credit-note" aria-labelledby="credit-title">
@@ -382,136 +348,6 @@
     </section>
     {% endif %}
 
-    <section aria-labelledby="fields-title">
-      <h2 id="fields-title">What was read</h2>
-      {% set info = invoice.additional_info or {} %}
-      <dl class="fields">
-        {% if invoice.description %}
-        <dt>Description</dt>
-        <dd>{{ invoice.description }}{% if info.get("description_printed") is false %} <span class="muted">(summary of the lines; none printed)</span>{% endif %}</dd>
-        {% endif %}
-        <dt>Vendor</dt>
-        <dd>{{ invoice.vendor_name or "not read" }}
-          {% if invoice.vendor %}<span class="tag tag--ok">in vendor list</span>{% elif invoice.vendor_name %}<span class="tag tag--human">not in vendor list</span>{% endif %}</dd>
-        <dt>Bill to</dt>
-        <dd>{{ invoice.bill_to_name or "not shown" }}</dd>
-        {% if invoice.vendor_tax_id %}<dt>Vendor tax ID</dt><dd>{{ invoice.vendor_tax_id }}</dd>{% endif %}
-        <dt>Invoice number</dt><dd>{{ invoice.invoice_number or "not read" }}</dd>
-        <dt>Invoice date</dt><dd>{{ (invoice.invoice_date | date) or "not read" }}</dd>
-        <dt>Due date</dt><dd>{{ (invoice.due_date | date) or "not shown" }}</dd>
-        <dt>Purchase order</dt>
-        <dd>{% if invoice.purchase_order %}{{ invoice.purchase_order.po_number }} <span class="tag tag--ok">matched</span>{% elif invoice.po_reference %}{{ invoice.po_reference }} <span class="tag tag--human">not matched</span>{% else %}none quoted{% endif %}</dd>
-        <dt>Pays into</dt>
-        <dd>{% if invoice.bank_account_last4 %}account ending <span>{{ invoice.bank_account_last4 }}</span>{% else %}no account shown{% endif %}</dd>
-        <dt>Subtotal</dt><dd>{{ (invoice.subtotal | money(invoice.currency)) or "not shown" }}</dd>
-        {% if invoice.discount %}<dt>Discount</dt><dd>-{{ invoice.discount | money(invoice.currency) }}</dd>{% endif %}
-        {% if invoice.shipping %}<dt>Shipping</dt><dd>{{ invoice.shipping | money(invoice.currency) }}</dd>{% endif %}
-        <dt>Tax</dt><dd>{{ (invoice.tax_total | money(invoice.currency)) or "not shown" }}</dd>
-        <dt>Total</dt><dd class="strong">{{ invoice.total | money(invoice.currency) }}{% if invoice.fx_rate %} <span class="muted">≈ {{ base_currency }} {{ invoice.in_base(invoice.total) | money }}</span>{% endif %}</dd>
-        {% if invoice.amount_paid %}<dt>Already paid</dt><dd>-{{ invoice.amount_paid | money(invoice.currency) }}</dd>{% endif %}
-        {% if invoice.amount_due is not none and invoice.amount_due != invoice.total %}<dt>Balance due</dt><dd class="strong">{{ invoice.amount_due | money(invoice.currency) }}</dd>{% endif %}
-      </dl>
-
-      {% if invoice.lines %}
-      {% set sources = {"po": ("from the PO", "ok"), "ai": ("chosen by Jev", "confirm"), "vendor": ("vendor default", "muted"),
-                        "suspense": ("needs coding", "human"), "person": ("set by a person", "ok")} %}
-      {% set editable = invoice.status != "exported" %}
-      <form method="post" action="/invoices/{{ invoice.id }}/accounts" class="coding-form">
-      <div class="table-wrap">
-        <table class="ledger ledger--compact">
-          <caption class="sr-only">Invoice lines and the account each is recorded in</caption>
-          <thead><tr><th scope="col">Line</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th><th scope="col">Account</th></tr></thead>
-          <tbody>
-            {% for line in invoice.lines %}
-            {% set how, tone = sources.get(line.gl_source, ("not coded", "muted")) %}
-            <tr>
-              <td>{{ line.description }}</td>
-              <td class="num">{{ line.quantity | qty }}</td>
-              <td class="num">{{ line.unit_price | money }}</td>
-              <td class="num">{{ line.amount | money }}</td>
-              <td class="coding-cell">
-                {% if editable %}
-                <label class="sr-only" for="account-{{ line.id }}">Account for {{ line.description }}</label>
-                <select id="account-{{ line.id }}" name="account_{{ line.id }}">
-                  {% if not line.gl_account_code %}<option value="">Choose an account</option>{% endif %}
-                  {% for account in gl_accounts %}<option value="{{ account.code }}" {% if account.code == line.gl_account_code %}selected{% endif %}>{{ account.code }} {{ account.name }}</option>{% endfor %}
-                </select>
-                {% else %}<span class="typed">{{ line.gl_account_code or "" }}</span>{% endif %}
-                <span class="sub"><span class="tag tag--{{ tone }}">{{ how }}</span>{% if line.gl_confidence is not none and line.gl_source in ("ai", "vendor", "suspense") %} Jev {{ (line.gl_confidence * 100) | round | int }}% sure{% endif %}</span>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% if editable %}
-      <div class="coding-form__save">
-        <div class="field"><label for="person-coding">Your name</label>
-          <input id="person-coding" name="person" type="text" maxlength="100" autocomplete="name" value="{{ reviewer }}" required></div>
-        <button class="button" type="submit">Save accounts</button>
-      </div>
-      {% endif %}
-      </form>
-      {% if uncoded %}
-      <form method="post" action="/invoices/{{ invoice.id }}/code" class="code-jev">
-        <input type="hidden" name="_form" value="code">
-        <p class="muted small">Some lines have no account, because this invoice was read before account coding existed.
-          Jev can choose them now, the same way it codes new invoices.</p>
-        <div class="coding-form__save">
-          {{ person_field(reviewer, "person-code") }}
-          <button class="button" type="submit">Code with Jev</button>
-        </div>
-      </form>
-      {% endif %}
-      {% endif %}
-    </section>
-
-    {% set info = invoice.additional_info or {} %}
-    {% if info.get("payment_terms") or info.get("late_fee_terms") or info.get("remittance") or info.get("notes") or info.get("other_details") %}
-    <section class="extra-info" aria-labelledby="info-title">
-      <h2 id="info-title">Additional information</h2>
-      <p class="muted small">As printed on the invoice. Account numbers keep only their last 4 digits.</p>
-      <dl class="fields">
-        {% if info.get("payment_terms") %}<dt>Payment terms</dt><dd>{{ info["payment_terms"] }}</dd>{% endif %}
-        {% if info.get("late_fee_terms") %}<dt>Late-payment terms</dt><dd>{{ info["late_fee_terms"] }}</dd>{% endif %}
-        {% if info.get("remittance") %}<dt>Remittance</dt><dd>{{ info["remittance"] }}</dd>{% endif %}
-        {% if info.get("notes") %}<dt>Notes</dt>
-        <dd>{% for note in info["notes"] %}<p class="extra-info__note">{{ note }}</p>{% endfor %}</dd>{% endif %}
-        {% for detail in info.get("other_details") or [] %}<dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd>{% endfor %}
-      </dl>
-    </section>
-    {% endif %}
-
-    {% if jev_rows %}
-    <section aria-labelledby="jev-title">
-      <h2 id="jev-title">Jev's judgment</h2>
-      <p class="muted small">
-        Calibrated answers from TypeSafe Jev ({{ decision.jev_model }}). The policy treats a risk
-        of 30% or less as clear and 70% or more as present (50% for instructions aimed at software).
-        In between, a person decides.
-      </p>
-      <table class="ledger ledger--compact judgment">
-        <thead><tr><th scope="col">Question</th><th scope="col">Answer</th><th scope="col"><span class="sr-only">Probability</span></th><th scope="col">Verdict</th></tr></thead>
-        <tbody>
-          {% for row in jev_rows %}
-          {% set verdict, tone = row.verdict %}
-          <tr>
-            <td>{{ row.label }}</td>
-            <td>{{ row.value }}</td>
-            <td><span class="meter" aria-hidden="true"><span class="meter__fill meter__fill--{{ tone }}" style="width: {{ (row.bar * 100) | round(0) | int }}%"></span></span></td>
-            <td><span class="tag tag--{{ tone }}">{{ verdict }}</span></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </section>
-    {% elif decision and decision.jev_status != "ok" %}
-    <section aria-labelledby="jev-title">
-      <h2 id="jev-title">Jev's judgment</h2>
-      <p class="muted">No answers: {{ reason(("JEV_NOT_CONFIGURED" if decision.jev_status == "not_configured" else "JEV_UNAVAILABLE")).guidance }}</p>
-    </section>
-    {% endif %}
-
     <section aria-labelledby="history-title">
       <h2 id="history-title">Comments and history</h2>
       {% set f = form if form.get('_form') == 'comment' else {} %}
@@ -538,18 +374,7 @@
       </ol>
     </section>
 
-    {% if decision %}
-    <details class="provenance">
-      <summary>How this was decided</summary>
-      <dl class="fields fields--small">
-        {% if invoice.transcription_model %}<dt>Transcribed by</dt><dd>Groq {{ invoice.transcription_model }}, ${{ "%.5f" | format(invoice.transcription_cost_usd or 0) }} (estimate)</dd>{% endif %}
-        {% if invoice.extraction_model %}<dt>Read by</dt><dd>{{ invoice.extraction_provider }} {{ invoice.extraction_model }}, prompt {{ invoice.extraction_prompt_version }}, ${{ "%.5f" | format(invoice.extraction_cost_usd or 0) }}</dd>{% endif %}
-        <dt>Judged by</dt><dd>{{ decision.jev_model or "no model (" ~ decision.jev_status ~ ")" }}, questions {{ decision.question_set_version }}</dd>
-        <dt>Policy</dt><dd>{{ decision.policy_version }}</dd>
-        <dt>Inputs hash</dt><dd class="small">{{ decision.inputs_sha256[:16] }}</dd>
-      </dl>
-    </details>
-    {% endif %}
   </div>
 </div>
+<script src="{{ url_for('static', path='steps.js') }}?v={{ asset_version }}" defer></script>
 {% endblock %}

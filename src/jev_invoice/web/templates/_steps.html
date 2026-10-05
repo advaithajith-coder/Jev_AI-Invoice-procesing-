@@ -1,0 +1,166 @@
+{#- One line per processing step, each opening to that step's output. How the steps work
+    (models, prompts, rules) is on the Workflow page. -#}
+{% from "_history.html" import person_field %}
+{% set marks = {"ok": "✓", "human": "!", "block": "✗", "confirm": "•", "muted": "–"} %}
+{% set opens = ["read", "transcribe", "extract", "document_checks", "master_data", "judgment", "coding", "decision"] %}
+{% set info = invoice.additional_info or {} %}
+{% set step_sources = {"po": "from the PO", "ai": "chosen by Jev", "vendor": "vendor default",
+                       "suspense": "needs coding", "person": "set by a person"} %}
+<section class="steps" aria-labelledby="steps-title" data-finished="{{ 'true' if st.finished else 'false' }}">
+  <div class="steps__head">
+    <h2 id="steps-title">Steps</h2>
+    {% if st.finished %}
+    <p class="steps__total">Finished in <b>{{ st.total_ms | duration }}</b></p>
+    {% else %}
+    <p class="steps__total steps__total--live" role="status" aria-live="polite"><span class="pulse" aria-hidden="true"></span>
+      {% if st.current %}Step {{ st.current.number }}: {{ st.current.title }}{% else %}Starting{% endif %}</p>
+    {% endif %}
+  </div>
+  <ol class="steps__list">
+    {% for s in st.items %}
+    {% set d = s.details %}
+    {% set expandable = s.key in opens and s.status in ("done", "warning") and (s.key != "read" or d.text_preview) %}
+    <li class="step step--{{ s.status }}" id="step-{{ s.key }}">
+      {% set row %}
+        <span class="step__num">{{ s.number }}</span>
+        <span class="step__title">{{ s.title }}</span>
+        <span class="step__line"><span class="step__mark step__mark--{{ s.tone }}" aria-hidden="true">{{ "…" if s.status == "running" else ("" if s.status == "pending" else marks.get(s.tone, "")) }}</span>{{ s.line }}</span>
+        <span class="step__time">{% if s.ms is not none %}{{ s.ms | duration }}{% endif %}</span>
+      {% endset %}
+      {% if expandable %}
+      <details id="d-{{ s.key }}" {% if s.key == "decision" and invoice.status == "pending_review" %}open{% endif %}>
+        <summary class="step__row">{{ row }}</summary>
+        <div class="step__out">
+        {% if s.key == "read" %}
+          <pre class="code">{{ d.text_preview }}</pre>
+
+        {% elif s.key == "transcribe" %}
+          <pre class="code">{{ invoice.transcribed_text or d.text }}</pre>
+
+        {% elif s.key == "extract" %}
+          <dl class="fields fields--small">
+            {% if invoice.description %}<dt>Description</dt><dd>{{ invoice.description }}</dd>{% endif %}
+            <dt>Vendor</dt><dd>{{ invoice.vendor_name or "not read" }}</dd>
+            <dt>Bill to</dt><dd>{{ invoice.bill_to_name or "not shown" }}</dd>
+            {% if invoice.vendor_tax_id %}<dt>Vendor tax ID</dt><dd>{{ invoice.vendor_tax_id }}</dd>{% endif %}
+            <dt>Invoice number</dt><dd>{{ invoice.invoice_number or "not read" }}</dd>
+            <dt>Invoice date</dt><dd>{{ (invoice.invoice_date | date) or "not read" }}</dd>
+            <dt>Due date</dt><dd>{{ (invoice.due_date | date) or "not shown" }}</dd>
+            <dt>Purchase order</dt><dd>{{ invoice.po_reference or "none quoted" }}</dd>
+            <dt>Pays into</dt><dd>{% if invoice.bank_account_last4 %}account ending {{ invoice.bank_account_last4 }}{% else %}not shown{% endif %}</dd>
+            <dt>Subtotal</dt><dd>{{ (invoice.subtotal | money(invoice.currency)) or "not shown" }}</dd>
+            {% if invoice.discount %}<dt>Discount</dt><dd>-{{ invoice.discount | money(invoice.currency) }}</dd>{% endif %}
+            {% if invoice.shipping %}<dt>Shipping</dt><dd>{{ invoice.shipping | money(invoice.currency) }}</dd>{% endif %}
+            <dt>Tax</dt><dd>{{ (invoice.tax_total | money(invoice.currency)) or "not shown" }}</dd>
+            <dt>Total</dt><dd class="strong">{{ invoice.total | money(invoice.currency) }}{% if invoice.fx_rate %} <span class="muted">≈ {{ base_currency }} {{ invoice.in_base(invoice.total) | money }}, at 1 {{ invoice.currency }} = {{ invoice.fx_rate | rate }} {{ base_currency }} ({{ invoice.fx_rate_date | date }})</span>{% endif %}</dd>
+            {% if invoice.amount_paid %}<dt>Already paid</dt><dd>-{{ invoice.amount_paid | money(invoice.currency) }}</dd>{% endif %}
+            {% if invoice.amount_due is not none and invoice.amount_due != invoice.total %}<dt>Balance due</dt><dd>{{ invoice.amount_due | money(invoice.currency) }}</dd>{% endif %}
+            {% if info.get("payment_terms") %}<dt>Payment terms</dt><dd>{{ info["payment_terms"] }}</dd>{% endif %}
+            {% if info.get("late_fee_terms") %}<dt>Late-payment terms</dt><dd>{{ info["late_fee_terms"] }}</dd>{% endif %}
+            {% if info.get("remittance") %}<dt>Remittance</dt><dd>{{ info["remittance"] }}</dd>{% endif %}
+            {% if info.get("notes") %}<dt>Notes</dt><dd>{% for note in info["notes"] %}<p class="extra-info__note">{{ note }}</p>{% endfor %}</dd>{% endif %}
+            {% for detail in info.get("other_details") or [] %}<dt>{{ detail.label }}</dt><dd>{{ detail.value }}</dd>{% endfor %}
+          </dl>
+          {% if invoice.lines %}
+          <div class="table-wrap">
+            <table class="ledger ledger--compact">
+              <thead><tr><th scope="col">Line</th><th scope="col" class="num">Qty</th><th scope="col" class="num">Unit price</th><th scope="col" class="num">Amount</th></tr></thead>
+              <tbody>
+                {% for line in invoice.lines %}
+                <tr><td>{{ line.description }}</td><td class="num">{{ line.quantity | qty }}</td><td class="num">{{ line.unit_price | money }}</td><td class="num">{{ line.amount | money }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+
+        {% elif s.key in ("document_checks", "master_data") %}
+          <ul class="checklist">
+            {% for c in d.checks %}
+            {% set state = "pass" if c.passed is true else ("fail" if c.passed is false else "na") %}
+            <li class="checklist__item checklist__item--{{ state }}">
+              <span class="checklist__mark" aria-hidden="true">{{ "✓" if state == "pass" else ("✗" if state == "fail" else "–") }}</span>
+              <span class="sr-only">{{ {"pass": "Passed", "fail": "Failed", "na": "Not applicable"}[state] }}:</span>
+              <span class="checklist__label">{{ c.label }}</span>
+              {% if c.detail %}<span class="checklist__detail">{{ c.detail }}</span>{% endif %}
+              {% for message in c.findings or [] %}<span class="checklist__detail">{{ message }}</span>{% endfor %}
+            </li>
+            {% endfor %}
+          </ul>
+
+        {% elif s.key == "judgment" %}
+          {% if jev_rows %}
+          <table class="ledger ledger--compact judgment">
+            <thead><tr><th scope="col">Question</th><th scope="col">Answer</th><th scope="col"><span class="sr-only">Probability</span></th><th scope="col">Verdict</th></tr></thead>
+            <tbody>
+              {% for row in jev_rows %}{% set verdict, vtone = row.verdict %}
+              <tr><td>{{ row.label }}</td><td>{{ row.value }}</td>
+                <td><span class="meter" aria-hidden="true"><span class="meter__fill meter__fill--{{ vtone }}" style="width: {{ (row.bar * 100) | round(0) | int }}%"></span></span></td>
+                <td><span class="tag tag--{{ vtone }}">{{ verdict }}</span></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}<p class="muted">{{ s.row.summary }}</p>{% endif %}
+
+        {% elif s.key == "coding" %}
+          {% set editable = invoice.status != "exported" %}
+          {% set coded = d.get("lines") or [] %}
+          <form method="post" action="/invoices/{{ invoice.id }}/accounts" class="coding-form">
+            <div class="table-wrap">
+              <table class="ledger ledger--compact">
+                <caption class="sr-only">The account each line is recorded in</caption>
+                <thead><tr><th scope="col">Line</th><th scope="col" class="num">Amount</th><th scope="col">Account</th></tr></thead>
+                <tbody>
+                  {% for line in invoice.lines %}
+                  <tr><td>{{ line.description }}</td><td class="num">{{ line.amount | money }}</td>
+                    <td class="coding-cell">
+                      {% if editable %}
+                      <label class="sr-only" for="account-{{ line.id }}">Account for {{ line.description }}</label>
+                      <select id="account-{{ line.id }}" name="account_{{ line.id }}">
+                        {% if not line.gl_account_code %}<option value="">Choose an account</option>{% endif %}
+                        {% for account in gl_accounts %}<option value="{{ account.code }}" {% if account.code == line.gl_account_code %}selected{% endif %}>{{ account.code }} {{ account.name }}</option>{% endfor %}
+                      </select>
+                      {% else %}<span class="typed">{{ line.gl_account_code or "" }}</span>{% endif %}
+                      <span class="sub">{{ step_sources.get(line.gl_source, "not coded") }}{% if line.gl_confidence is not none and line.gl_source in ("ai", "vendor", "suspense") %}, Jev {{ (line.gl_confidence * 100) | round | int }}% sure{% endif %}{% set c = coded[loop.index0] if loop.index0 < coded | length else {} %}{% if c.get("suggestion") and c.get("suggestion") != line.gl_account_code %}; Jev suggested {{ c.suggestion }} {{ c.suggestion_name or "" }}{% endif %}</span>
+                    </td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% if editable %}
+            <div class="coding-form__save">
+              <div class="field"><label for="person-coding">Your name</label>
+                <input id="person-coding" name="person" type="text" maxlength="100" autocomplete="name" value="{{ reviewer }}" required></div>
+              <button class="button" type="submit">Save accounts</button>
+            </div>
+            {% endif %}
+          </form>
+          {% if uncoded %}
+          <form method="post" action="/invoices/{{ invoice.id }}/code" class="code-jev">
+            <input type="hidden" name="_form" value="code">
+            <div class="coding-form__save">
+              {{ person_field(reviewer, "person-code") }}
+              <button class="button" type="submit">Code with Jev</button>
+            </div>
+          </form>
+          {% endif %}
+
+        {% elif s.key == "decision" and decision %}
+          {% if decision.reason_codes %}
+          <ul class="reasons">
+            {% for code in decision.reason_codes %}{% set r = reason(code) %}
+            <li class="reasons__item reasons__item--{{ r.tone }}"><p class="reasons__title">{{ r.title }}</p>
+              {% for finding in decision.findings if finding.code == code %}<p class="reasons__finding">{{ finding.message }}</p>{% endfor %}</li>
+            {% endfor %}
+          </ul>
+          {% else %}<p class="muted">Every check passed and Jev saw no risk.</p>{% endif %}
+        {% endif %}
+        </div>
+      </details>
+      {% else %}
+      <div class="step__row">{{ row }}</div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>

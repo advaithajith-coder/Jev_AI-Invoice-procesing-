@@ -1,4 +1,4 @@
-"""Recorded pipeline steps, the journey screen, and background processing."""
+"""Recorded pipeline steps, the steps on the invoice page, and background processing."""
 
 import asyncio
 import uuid
@@ -166,10 +166,10 @@ def test_photo_records_transcription_step(
     assert steps["transcribe"].details["text"].startswith("INVOICE AS-20431")
 
 
-# ── Journey screen ────────────────────────────────────────────────────────────
+# ── Steps on the invoice page ─────────────────────────────────────────────────
 
 
-def test_journey_page_shows_every_step_and_final_output(
+def test_invoice_page_shows_each_steps_output(
     app: FastAPI, client: TestClient, seeded_settings: Settings
 ) -> None:
     install_fakes(
@@ -177,21 +177,42 @@ def test_journey_page_shows_every_step_and_final_output(
     )
     invoice = _upload_api(client)
 
-    page = client.get(f"/invoices/{invoice['id']}/journey").text
+    page = client.get(f"/invoices/{invoice['id']}").text
 
     for title in ("Received", "Read the file", "Vision transcription", "Extract fields (LLM)",
-                  "Document checks", "Vendor and PO checks", "Jev judgment", "Decision", "Outcome"):  # fmt: skip
+                  "Document checks", "Vendor and PO checks", "Jev judgment", "Account coding",
+                  "Decision", "Outcome"):  # fmt: skip
         assert title in page
     assert 'data-finished="true"' in page
-    assert "Finished in" in page and "AI cost" in page
-    assert "What the model read" in page
-    assert "Bank account matches our records" in page
-    assert "Decided by" in page and "No purchase order" in page
-    assert "Final output" in page and "Waiting for a person." in page
+    assert "Finished in" in page
+    assert "AS-20431 · 30 Sep 2026 · no PO · 1 line · USD 1,074.00" in page
+    assert "Not needed: the file has text" in page
+    assert "Bank account matches our records" in page  # the full checklist opens from the row
+    assert "Invoice, asks for payment, no risk signals" in page
+    assert "Needs budget approval: No purchase order" in page
+    assert "In the review queue" in page
 
 
-def test_journey_while_processing(seeded_settings: Settings, tmp_path: Path) -> None:
-    # An invoice that has only been received: the page shows waiting steps and keeps polling.
+def test_invoice_page_leaves_prompts_and_rules_to_the_workflow_page(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    install_fakes(app, seeded_settings, acme_invoice_fields(), jev=[wire_answers()])
+    invoice = _upload_api(client)
+
+    page = client.get(f"/invoices/{invoice['id']}").text
+    workflow = client.get("/workflow").text
+
+    for detail in ("You read supplier invoices", "fake-model", "Questions sent to Jev"):
+        assert detail not in page
+    assert 'data-info="extract"' in workflow  # the (i) on the step opens its dialog
+    assert 'id="info-extract"' in workflow
+    assert "You read supplier invoices" in workflow  # the extraction prompt
+    assert "Which account in the chart of accounts" in workflow  # Jev's coding question
+    assert "at most 5,000.00 USD" in workflow
+
+
+def test_invoice_page_while_processing(seeded_settings: Settings, tmp_path: Path) -> None:
+    # An invoice that has only been received: its steps wait, and the page keeps polling.
     async def receive_only() -> str:
         engine = create_engine(seeded_settings)
         try:
@@ -210,17 +231,17 @@ def test_journey_while_processing(seeded_settings: Settings, tmp_path: Path) -> 
 
     invoice_id = asyncio.run(receive_only())
     with TestClient(create_app(seeded_settings)) as client:
-        page = client.get(f"/invoices/{invoice_id}/journey").text
-        live = client.get(f"/invoices/{invoice_id}/journey/live").text
+        page = client.get(f"/invoices/{invoice_id}").text
+        live = client.get(f"/invoices/{invoice_id}/steps").text
 
     assert 'data-finished="false"' in page
-    assert "Processing" in page
-    assert "Waiting for earlier steps." in page
-    assert live.lstrip().startswith('<article class="slip journey"')
+    assert 'data-live-url="/invoices/' in page
+    assert "Waiting for the steps before it" in page
+    assert live.lstrip().startswith('<section class="steps"')
     assert "<html" not in live
 
 
-def test_web_upload_redirects_to_journey(
+def test_web_upload_opens_the_invoice_page(
     app: FastAPI, client: TestClient, seeded_settings: Settings
 ) -> None:
     install_fakes(app, seeded_settings, acme_invoice_fields(), jev=[wire_answers()])
@@ -232,8 +253,21 @@ def test_web_upload_redirects_to_journey(
     )
 
     assert response.status_code == 303
-    assert response.headers["location"].endswith("/journey")
-    assert "Approved automatically" in client.get(response.headers["location"]).text
+    location = response.headers["location"]
+    assert location.startswith("/invoices/") and location.count("/") == 2
+    assert "Approved automatically" in client.get(location).text
+
+
+def test_old_journey_links_open_the_invoice_page(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    install_fakes(app, seeded_settings, acme_invoice_fields(), jev=[wire_answers()])
+    invoice_id = _upload_api(client)["id"]
+
+    response = client.get(f"/invoices/{invoice_id}/journey", follow_redirects=False)
+
+    assert response.status_code == 308
+    assert response.headers["location"] == f"/invoices/{invoice_id}"
 
 
 # ── Background processing ─────────────────────────────────────────────────────
@@ -333,15 +367,15 @@ def _stuck_after_extraction(settings: Settings) -> uuid.UUID:
     return asyncio.run(make())
 
 
-def test_journey_is_not_finished_while_later_steps_run(seeded_settings: Settings) -> None:
+def test_steps_are_not_finished_while_later_steps_run(seeded_settings: Settings) -> None:
     invoice_id = _stuck_after_extraction(seeded_settings)
 
     with TestClient(create_app(seeded_settings)) as client:
-        page = client.get(f"/invoices/{invoice_id}/journey").text
+        page = client.get(f"/invoices/{invoice_id}").text
 
     assert 'data-finished="false"' in page
-    assert "track__step--running" in page
-    assert "Did not run." not in page  # decision and outcome are waiting, not skipped
+    assert "step--running" in page
+    assert "Did not run" not in page  # decision and outcome are waiting, not skipped
 
 
 def test_runner_restarts_an_invoice_interrupted_after_extraction(seeded_settings: Settings) -> None:

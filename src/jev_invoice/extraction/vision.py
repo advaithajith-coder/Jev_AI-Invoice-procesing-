@@ -94,7 +94,7 @@ class TranscriptionService:
 
     @property
     def instructions(self) -> str:
-        """What the model is told, shown on the journey page."""
+        """What the model is told, shown on the Workflow page."""
         return OCR_TASK_PROMPT if self._ocr_model else TRANSCRIPTION_PROMPT
 
     @property
