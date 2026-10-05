@@ -143,5 +143,5 @@
 </div>
 {% include "_rules.html" %}
 <script type="application/json" id="workflow-data">{{ w | tojson }}</script>
-<script src="{{ url_for('static', path='workflow.js') }}" defer></script>
+<script src="{{ url_for('static', path='workflow.js') }}?v={{ asset_version }}" defer></script>
 {% endblock %}

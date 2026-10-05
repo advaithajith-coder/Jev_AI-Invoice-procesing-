@@ -133,9 +133,9 @@ def rate(value: Decimal) -> str:
 templates.env.filters.update(
     rate=rate, money=money, date=nice_date, ago=ago, pct=percent, qty=quantity, duration=duration
 )
-# Changes when the stylesheet or script changes, so browsers fetch the new version.
+# Changes when any stylesheet or script changes, so browsers fetch the new version.
 _STATIC = Path(__file__).parent / "static"
-ASSET_VERSION = max(int((_STATIC / name).stat().st_mtime) for name in ("app.css", "app.js"))
+ASSET_VERSION = max(int(path.stat().st_mtime) for path in _STATIC.iterdir() if path.is_file())
 
 _LEGAL_SUFFIX = re.compile(r",?\s+(inc|llc|ltd|llp|corp|co|plc|gmbh)\.?$", re.IGNORECASE)
 
