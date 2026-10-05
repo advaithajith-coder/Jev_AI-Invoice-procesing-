@@ -118,14 +118,21 @@ class MatchingService:
         *,
         invoice_id: uuid.UUID,
         sender_email: str | None = None,
+        stored_bank: tuple[str | None, str | None] | None = None,
     ) -> MatchResult:
-        """*sender_email*: who emailed the invoice, when it arrived by email."""
+        """*sender_email*: who emailed the invoice, when it arrived by email.
+
+        *stored_bank*: (last 4, fingerprint) kept from an earlier check, for re-checking an
+        invoice whose raw account number was never stored.
+        """
         result = MatchResult()
         if invoice.bank_account:
             result.bank_account_last4 = bank_account_last4(invoice.bank_account)
             result.bank_account_fingerprint = bank_account_fingerprint(
                 invoice.bank_account, self._key
             )
+        elif stored_bank is not None:
+            result.bank_account_last4, result.bank_account_fingerprint = stored_bank
 
         await self._match_vendor(invoice, result)
         if result.vendor is not None:

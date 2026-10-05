@@ -72,6 +72,11 @@ the decision form, payment and the audit history. How each step works (its model
 instructions and the rules) opens from the **i** on that step in the **Workflow** flowchart.
 Approving an invoice blocked as possible fraud requires a written note on how it was verified.
 
+**Receiving** lists everything on order that has not fully arrived. Recording a delivery there
+(or on a purchase order's page) feeds the three-way match, and every invoice waiting on that
+order is checked again straight away, reusing what was read and Jev's answers (no model
+calls): one held only because the goods had not arrived is approved.
+
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/v1/invoices` | Upload a PDF, scan or photo (PNG/JPG/WEBP/TIFF), `.txt`, or `.eml` and run the pipeline |

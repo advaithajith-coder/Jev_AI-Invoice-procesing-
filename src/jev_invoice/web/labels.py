@@ -272,6 +272,7 @@ AUDIT_ACTIONS: dict[str, str] = {
     "credit_note.applied": "Credit note applied",
     "invoice.payment_recorded": "Payment recorded",
     "invoice.coded": "Lines coded by Jev",
+    "invoice.rechecked": "Checked again",
 }
 
 _METHODS = {"ach": "ACH", "check": "check", "wire": "wire", "card": "card"}
@@ -296,6 +297,14 @@ def event_detail(action: str, data: dict[str, Any]) -> str:
         return str(data.get("outcome_label", ""))
     if action == "credit_note.applied":
         return f"to invoice {data.get('invoice_number', '')}"
+    if action == "invoice.rechecked":
+        reasons = data.get("reasons") or []
+        outcome = (
+            "every check passes now"
+            if not reasons
+            else "still needs a person: " + ", ".join(reason(code).title for code in reasons)
+        )
+        return f"after {data.get('why', 'a change')}: {outcome}"
     if action == "invoice.coded":
         return ", ".join(
             f"{account} ({source})" for account, source in (data.get("lines") or {}).values()

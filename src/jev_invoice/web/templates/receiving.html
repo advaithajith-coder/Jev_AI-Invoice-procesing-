@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_history.html" import person_field %}
+{% block title %}Receiving | {{ company_short }} AP{% endblock %}
+{% block content %}
+<div class="section-head">
+  <h1>Receiving</h1>
+  <a class="button" href="/purchase-orders">Purchase orders</a>
+</div>
+<p class="lede">Record what arrived against each order. Invoices are paid only for what was
+  ordered <em>and</em> received (the three-way match), so an invoice waiting for goods is
+  checked again as soon as you record the delivery.</p>
+
+{% if notice %}
+<div class="banner banner--ok" role="status">
+  <p>{{ notice }}</p>
+  {% if checked %}
+  <p>Checked again: {{ checked | join(", ") }}.
+    {% if approved %}Now approved: <b>{{ approved | join(", ") }}</b>.{% endif %}
+    {% if checked | length > approved | length %}The rest still need a person; see their reasons below or in the review queue.{% endif %}</p>
+  {% endif %}
+</div>
+{% endif %}
+{% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
+
+<section aria-labelledby="due-title">
+  <h2 id="due-title">Waiting for delivery <span class="muted">{{ orders | length }}</span></h2>
+  {% for s, waiting in orders %}
+  {% set po = s.po %}
+  {% set label, tone = PO_STATUSES.get(po.status, (po.status, "muted")) %}
+  {% set due = s.lines | selectattr("outstanding") | list %}
+  <form class="receive" method="post" action="/receiving/{{ po.id }}" aria-labelledby="po-{{ po.id }}">
+    <div class="receive__head">
+      <h3 id="po-{{ po.id }}"><a href="/purchase-orders/{{ po.id }}">{{ po.po_number }}</a> <span class="receive__vendor">{{ po.vendor.name }}</span></h3>
+      <p class="receive__meta"><span class="tag tag--{{ tone }}">{{ label }}</span>
+        ordered {{ po.issued_date | date }} · {{ due | length }} of {{ s.lines | length }} line{{ "s" if s.lines | length != 1 }} still to come</p>
+    </div>
+    <div class="table-wrap">
+      <table class="ledger ledger--compact">
+        <thead><tr><th scope="col">Item</th><th scope="col" class="num">Ordered</th><th scope="col" class="num">Received</th>
+          <th scope="col" class="num">To come</th><th scope="col" class="num">Arrived now</th></tr></thead>
+        <tbody>
+          {% for item in s.lines %}
+          <tr>
+            <td>{{ item.line.description }}</td>
+            <td class="num">{{ item.line.quantity | qty }}</td>
+            <td class="num">{{ item.received | qty }}</td>
+            <td class="num">{% if item.outstanding %}<b>{{ item.outstanding | qty }}</b>{% else %}<span class="tag tag--ok">all</span>{% endif %}</td>
+            <td class="num">{% if item.outstanding > 0 %}
+              <label class="sr-only" for="qty_{{ item.line.id }}">Arrived now, {{ item.line.description }}</label>
+              <input class="qty-input" id="qty_{{ item.line.id }}" name="qty_{{ item.line.id }}" type="number" min="0" max="{{ item.outstanding | qty }}" step="any" placeholder="0">
+              {% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if waiting %}
+    <ul class="receive__waiting" aria-label="Invoices waiting on this order">
+      {% for invoice in waiting %}{% set decision = invoice.decisions[-1] if invoice.decisions else none %}
+      <li><a href="/invoices/{{ invoice.id }}">{{ invoice.invoice_number or invoice.original_filename }}</a>
+        {{ invoice.total | money(invoice.currency) }} waits for a person{% if decision and decision.reason_codes %}:
+        {% for code in decision.reason_codes %}{{ reason(code).title }}{{ ", " if not loop.last }}{% endfor %}{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="receive__foot">
+      <div class="field"><label for="date-{{ po.id }}">Delivered on</label>
+        <input id="date-{{ po.id }}" name="received_date" type="date" value="{{ today.isoformat() }}" max="{{ today.isoformat() }}"></div>
+      {{ person_field(person, "person-" ~ po.id) }}
+      <button class="button button--primary" type="submit">Record delivery</button>
+    </div>
+  </form>
+  {% else %}
+  <div class="empty"><p>Nothing is waiting for delivery. <a href="/purchase-orders">Create a purchase order</a> to order something.</p></div>
+  {% endfor %}
+</section>
+
+<section aria-labelledby="done-title">
+  <h2 id="done-title">Recent deliveries</h2>
+  {% if deliveries %}
+  <div class="table-wrap">
+    <table class="ledger ledger--compact">
+      <thead><tr><th scope="col">Delivered</th><th scope="col">Receipt</th><th scope="col">Order</th><th scope="col">Vendor</th><th scope="col">Items</th></tr></thead>
+      <tbody>
+        {% for r in deliveries %}
+        {% set names = {} %}{% for line in r.purchase_order.lines %}{% set _ = names.update({line.id: line.description}) %}{% endfor %}
+        <tr>
+          <td>{{ r.received_date | date }}</td>
+          <td class="typed">{{ r.receipt_number }}</td>
+          <td><a href="/purchase-orders/{{ r.purchase_order_id }}">{{ r.purchase_order.po_number }}</a></td>
+          <td>{{ r.purchase_order.vendor.name }}</td>
+          <td>{% for line in r.lines %}{{ line.quantity_received | qty }} × {{ names.get(line.purchase_order_line_id, "item") }}{{ "; " if not loop.last }}{% endfor %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="muted">No deliveries recorded yet.</p>{% endif %}
+</section>
+{% endblock %}

@@ -19,6 +19,7 @@ from jev_invoice.api.dependencies import (
     SessionDep,
     get_export_service,
     get_importer,
+    get_pipeline,
     get_po_service,
     get_vendor_service,
 )
@@ -48,6 +49,8 @@ from jev_invoice.masterdata.vendors import (
     VendorFields,
     VendorService,
 )
+from jev_invoice.pipeline.recheck import recheck_waiting_on
+from jev_invoice.pipeline.service import InvoicePipeline
 from jev_invoice.web.routes import REVIEWER_COOKIE, templates
 
 router = APIRouter(include_in_schema=False)
@@ -61,7 +64,7 @@ NOTICES = {
     "vendor_updated": "Vendor saved.",
     "bank_changed": "Bank account changed and recorded in the history.",
     "po_created": "Purchase order created.",
-    "delivery": "Delivery recorded.",
+    "delivery": "Delivery recorded. Invoices waiting on this order were checked again.",
     "po_closed": "Purchase order closed.",
     "po_cancelled": "Purchase order cancelled.",
     "account_created": "Account added. Jev can now code invoice lines to it.",
@@ -481,7 +484,11 @@ async def po_page(
 
 @router.post("/purchase-orders/{po_id}/receipts", response_model=None)
 async def record_delivery(
-    request: Request, po_id: uuid.UUID, session: SessionDep, pos: POsDep
+    request: Request,
+    po_id: uuid.UUID,
+    session: SessionDep,
+    pos: POsDep,
+    pipeline: InvoicePipeline = Depends(get_pipeline),  # noqa: B008 - FastAPI dependency
 ) -> Response:
     form = await request.form()
     person = str(form.get("person", ""))
@@ -499,13 +506,17 @@ async def record_delivery(
             received_by=_person(person),
             quantities=quantities,
         )
-        await pos.record_receipt(po_id, data)
+        receipt = await pos.record_receipt(po_id, data)
     except (AppError, ValidationError, ValueError) as exc:
         await session.rollback()
         context = await _po_context(session, pos, po_id)
         context.update(error=_message(exc), person=person)
         return _render(request, "purchase_order.html", context, 400)
-    return _redirect(f"/purchase-orders/{po_id}?notice=delivery", person.strip())
+    rechecked = await recheck_waiting_on(
+        session, pipeline, po_id, actor=data.received_by, why=f"delivery {receipt.receipt_number}"
+    )
+    approved = f"&approved={','.join(rechecked.approved)}" if rechecked.approved else ""
+    return _redirect(f"/purchase-orders/{po_id}?notice=delivery{approved}", person.strip())
 
 
 @router.post("/purchase-orders/{po_id}/status", response_model=None)

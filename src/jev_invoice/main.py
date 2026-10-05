@@ -32,6 +32,7 @@ from jev_invoice.pipeline.runner import BackgroundRunner
 from jev_invoice.web import admin as web_admin
 from jev_invoice.web import exceptions as web_exceptions
 from jev_invoice.web import payables as web_payables
+from jev_invoice.web import receiving as web_receiving
 from jev_invoice.web import routes as web
 from jev_invoice.web import workflow as web_workflow
 
@@ -160,6 +161,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(web.router)
     app.include_router(web_admin.router)
     app.include_router(web_payables.router)
+    app.include_router(web_receiving.router)
     app.include_router(web_exceptions.router)
     app.include_router(web_workflow.router)
     app.mount("/static", StaticFiles(directory=WEB_STATIC_DIR), name="static")

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import PurePath
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from sqlalchemy import Select, delete, select
@@ -46,8 +46,9 @@ from jev_invoice.decision.policy import ACTION_PRIORITY, POLICY_VERSION
 from jev_invoice.decision.questions import QUESTION_SET_VERSION, build_questions
 from jev_invoice.decision.service import DecisionService, Judgment
 from jev_invoice.domain.checks import CheckOutcome, run_document_checks
-from jev_invoice.domain.decision import DecisionOutcome
+from jev_invoice.domain.decision import DecisionOutcome, JevAnswers, JevStatus
 from jev_invoice.domain.enums import ActionBand, DocumentType, InvoiceStatus, ReviewStatus
+from jev_invoice.domain.invoice import CheckFinding, ExtractedInvoice
 from jev_invoice.domain.vendors import bank_account_last4
 from jev_invoice.extraction.prompts import SYSTEM_PROMPT
 from jev_invoice.extraction.service import ExtractionResult, ExtractionService
@@ -215,9 +216,117 @@ class InvoicePipeline:
         extraction = await self._extract(invoice, text, steps)
         rate = await self._exchange_rate(invoice)
 
+        findings = await self._check_document(extraction.invoice, rate, steps)
+        match = await self._check_records(invoice, extraction.invoice, rate, steps)
+        findings.extend(match.findings)
+
+        judgment = await self._judge(text, steps)
+        await self._code(invoice, match, steps)
+        outcome = await self._decide(findings, judgment, steps)
+
+        async with steps.run("outcome") as step:
+            task = await self._record_decision(invoice, outcome)
+            if task is None:
+                step.summary = "Approved automatically. No person needed."
+            else:
+                step.summary = "Sent to the review queue for a person to decide."
+                step.details = {"review_task_id": str(task.id)}
+            step.details["status"] = str(invoice.status)
+
+    # ── Re-check: after a delivery, with no model calls ───────────────────────
+
+    async def recheck(self, invoice_id: uuid.UUID, *, actor: str, why: str) -> bool:
+        """Check a waiting invoice again against today's records, such as a new delivery.
+
+        The fields already read and Jev's answers are reused, so no model is called. The
+        document checks, vendor and PO checks, decision and outcome are recorded again, and
+        a new decision is added (earlier ones are kept). With no reasons left the invoice is
+        approved and its review closed; otherwise the review stays open with the new
+        reasons. Returns True when the invoice was approved.
+        """
+        invoice = await self._session.scalar(invoice_query().where(Invoice.id == invoice_id))
+        if (
+            invoice is None
+            or invoice.status != InvoiceStatus.PENDING_REVIEW
+            or invoice.raw_extraction is None
+            or not invoice.decisions
+            or invoice.hold_kind  # a person put it on hold: leave it to them
+        ):
+            return False
+        task = await self._session.scalar(
+            select(ReviewTask).where(
+                ReviewTask.invoice_id == invoice.id, ReviewTask.status == ReviewStatus.OPEN
+            )
+        )
+        if task is None:
+            return False
+        previous = invoice.decisions[-1]
+        extracted = ExtractedInvoice.model_validate(invoice.raw_extraction)
+        judgment = Judgment(
+            JevAnswers.model_validate(previous.jev_answers) if previous.jev_answers else None,
+            cast(JevStatus, previous.jev_status),
+        )
+        await self._session.execute(
+            delete(PipelineStep).where(
+                PipelineStep.invoice_id == invoice.id,
+                PipelineStep.step.in_(("document_checks", "master_data", "decision", "outcome")),
+            )
+        )
+        await self._session.commit()
+        steps = StepRecorder(self._session, invoice.id)
+        rate = await self._exchange_rate(invoice)
+        findings = await self._check_document(extracted, rate, steps)
+        match = await self._check_records(
+            invoice,
+            extracted,
+            rate,
+            steps,
+            stored_bank=(invoice.bank_account_last4, invoice.bank_account_fingerprint),
+        )
+        findings.extend(match.findings)
+        outcome = await self._decide(findings, judgment, steps)
+        outcome = outcome.model_copy(
+            update={"jev_model": previous.jev_model, "jev_latency_ms": previous.jev_latency_ms}
+        )
+
+        async with steps.run("outcome") as step:
+            decision = self._new_decision(invoice, outcome)
+            audit.record(
+                self._session,
+                action="invoice.rechecked",
+                entity_type="invoice",
+                entity_id=invoice.id,
+                actor=actor,
+                data={"why": why, "action": outcome.action, "reasons": decision.reason_codes},
+            )
+            if outcome.band == ActionBand.AUTO:
+                invoice.status = InvoiceStatus.APPROVED
+                task.status = ReviewStatus.APPROVED
+                task.resolved_by = actor
+                task.resolved_at = datetime.now(UTC)
+                task.resolution_note = f"Checked again: {why}. Every check now passes."
+                audit.record(
+                    self._session,
+                    action="invoice.auto_approved",
+                    entity_type="invoice",
+                    entity_id=invoice.id,
+                )
+                step.summary = f"Approved after checking again: {why}."
+            else:
+                task.decision_id = decision.id
+                step.summary = "Still in the review queue after checking again."
+                step.details = {"review_task_id": str(task.id)}
+            step.details["status"] = str(invoice.status)
+        return outcome.band == ActionBand.AUTO
+
+    # ── Shared steps ──────────────────────────────────────────────────────────
+
+    async def _check_document(
+        self, extracted: ExtractedInvoice, rate: Rate | None, steps: StepRecorder
+    ) -> list[CheckFinding]:
         async with steps.run("document_checks") as step:
             outcomes = run_document_checks(
-                extraction.invoice,
+                extracted,
                 today=self._today(),
                 tolerance=self._settings.amount_tolerance,
                 # The current limit from the Settings page, else the configured default.
@@ -233,8 +342,17 @@ class InvoicePipeline:
             step.details = {"checks": [_check_row(outcome) for outcome in outcomes]}
             if passed < len(outcomes):
                 step.status = "warning"
-        findings = [finding for outcome in outcomes for finding in outcome.findings]
+        return [finding for outcome in outcomes for finding in outcome.findings]
 
+    async def _check_records(
+        self,
+        invoice: Invoice,
+        extracted: ExtractedInvoice,
+        rate: Rate | None,
+        steps: StepRecorder,
+        *,
+        stored_bank: tuple[str | None, str | None] | None = None,
+    ) -> MatchResult:
         async with steps.run("master_data") as step:
             match = await MatchingService(
                 self._session,
@@ -248,7 +366,12 @@ class InvoicePipeline:
                     else self._settings.po_tolerance_max_amount
                 ),
                 duplicate_window_days=self._settings.duplicate_window_days,
-            ).match(extraction.invoice, invoice_id=invoice.id, sender_email=invoice.sender_email)
+            ).match(
+                extracted,
+                invoice_id=invoice.id,
+                sender_email=invoice.sender_email,
+                stored_bank=stored_bank,
+            )
             self._apply_match(invoice, match)
             failed = [check for check in match.checks if check.passed is False]
             applicable = [check for check in match.checks if check.passed is not None]
@@ -267,11 +390,11 @@ class InvoicePipeline:
             }
             if failed:
                 step.status = "warning"
-        findings.extend(match.findings)
+        return match
 
-        judgment = await self._judge(text, steps)
-        await self._code(invoice, match, steps)
-
+    async def _decide(
+        self, findings: list[CheckFinding], judgment: Judgment, steps: StepRecorder
+    ) -> DecisionOutcome:
         async with steps.run("decision") as step:
             outcome = self._decisions.decide_from(findings, judgment)
             deciding = _deciding_reasons(outcome)
@@ -288,15 +411,7 @@ class InvoicePipeline:
                 "policy_version": POLICY_VERSION,
                 "inputs_sha256": outcome.inputs_sha256,
             }
-
-        async with steps.run("outcome") as step:
-            task = await self._record_decision(invoice, outcome)
-            if task is None:
-                step.summary = "Approved automatically. No person needed."
-            else:
-                step.summary = "Sent to the review queue for a person to decide."
-                step.details = {"review_task_id": str(task.id)}
-            step.details["status"] = str(invoice.status)
+        return outcome
 
     async def _exchange_rate(self, invoice: Invoice) -> Rate | None:
         """For an invoice in another currency: the rate to the company's, kept on the invoice.
@@ -626,9 +741,8 @@ class InvoicePipeline:
         for index, line in enumerate(invoice.lines):
             line.purchase_order_line_id = match.line_matches.get(index)
 
-    async def _record_decision(
-        self, invoice: Invoice, outcome: DecisionOutcome
-    ) -> ReviewTask | None:
+    def _new_decision(self, invoice: Invoice, outcome: DecisionOutcome) -> Decision:
+        """Add the decision (decisions are append-only) and record it in the history."""
         if outcome.jev is not None:
             invoice.document_type = DocumentType(outcome.jev.document_type)
         decision = Decision(
@@ -660,6 +774,12 @@ class InvoicePipeline:
                 "reasons": decision.reason_codes,
             },
         )
+        return decision
+
+    async def _record_decision(
+        self, invoice: Invoice, outcome: DecisionOutcome
+    ) -> ReviewTask | None:
+        decision = self._new_decision(invoice, outcome)
 
         if outcome.band == ActionBand.AUTO:
             invoice.status = InvoiceStatus.APPROVED

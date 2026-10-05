@@ -160,7 +160,7 @@ textarea { resize: vertical; }
 .panel { padding: 1rem 1.15rem; }
 .panel--caution { border-color: var(--bad); }
 .panel h2 { margin-bottom: 0.7rem; }
-.table-wrap { overflow-x: auto; }
+.table-wrap { position: relative; overflow-x: auto; }  /* keeps hidden labels inside the scroll area */
 .ledger { width: 100%; border-collapse: collapse; }
 .ledger th { padding: 0.5rem 0.75rem; text-align: left; white-space: nowrap; font-size: 0.8rem; font-weight: 600; color: var(--ink-2); background: var(--surface-2); border-bottom: 1px solid var(--line); }
 .ledger td { padding: 0.55rem 0.75rem; vertical-align: top; border-bottom: 1px solid var(--line); }
@@ -501,6 +501,16 @@ details[open] > summary.step__row .step__title::after { content: " ▾"; }
 .rules__questions, .rules__policy { margin: 0; padding-left: 1.2rem; }
 .rules__questions > li, .rules__policy > li { margin-bottom: 0.7rem; }
 .rules__options { margin: 0.25rem 0 0; padding-left: 1.1rem; color: var(--ink-2); font-size: 0.92rem; }
+
+/* ── Receiving ────────────────────────────────────────────────────────── */
+.receive { margin-bottom: 1.1rem; padding: 0.9rem 1.15rem 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
+.receive__head h3 { margin: 0; font-size: 1.05rem; }
+.receive__vendor { margin-left: 0.4rem; font-weight: 400; color: var(--ink-2); }
+.receive__meta { margin: 0.2rem 0 0.7rem; font-size: 0.9rem; color: var(--ink-3); }
+.receive .table-wrap { border-radius: var(--r-md); }
+.receive__waiting { margin: 0.75rem 0 0; padding: 0.55rem 0.75rem 0.55rem 1.8rem; background: var(--warn-wash); border-radius: var(--r-md); font-size: 0.92rem; }
+.receive__foot { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem 1rem; margin-top: 0.85rem; }
+.receive__foot .field { margin: 0; }
 
 /* ── Narrow screens ───────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
