@@ -51,7 +51,7 @@ docs/          decisions/ (ADRs), roadmap.md
 
 ## Rules that matter
 
-- **Money is `Decimal`, never float.** Dates are `date`. Round to cents with the helpers in `domain/`.
+- **Money is `Decimal`, never float.** Dates are `date`. Parse and round amounts with `to_money()` / `to_decimal()` in `domain/invoice.py`.
 - **Fail closed.** If Jev is missing, slow, errors, or is uncertain, the invoice goes to a person. Never add a path that auto-approves without zero reasons.
 - **Policy changes:** `decision/policy.py` is a pure function. Bump `POLICY_VERSION` (with a short comment why) whenever a threshold or rule changes. Every `ReasonCode` belongs to exactly one priority group (a test enforces this).
 - **Question changes:** bump `QUESTION_SET_VERSION` in `decision/questions.py` (or `coding/service.py`) when wording or options change.
