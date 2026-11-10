@@ -96,7 +96,7 @@
            transform="translate({{ x }} {{ y }})">
           <rect x="-68" y="-32" width="136" height="64" rx="4"/>
           {% if number %}<text class="wf-num" x="-58" y="-12">{{ number }}</text>{% endif %}
-          <text class="wf-title" x="{{ -44 if number else -58 }}" y="-12">{{ title }}</text>
+          <text class="wf-title" x="{{ (-38 if number | length > 1 else -44) if number else -58 }}" y="-12">{{ title }}</text>
           <text class="wf-actor" x="-58" y="6">{{ actor }}</text>
           <text class="wf-stat" x="-58" y="23" data-stat>
             {%- if key in counts -%}{{ w.counts[counts[key]] }} now
