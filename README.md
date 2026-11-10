@@ -211,6 +211,8 @@ in-memory transport, so request and response formats are exercised without netwo
 
 ## The live map on its own
 
+**Live: <https://jevai-invoice-procesing-showcase.vercel.app/>**
+
 [`showcase/`](showcase) is a static copy of the live map that needs no backend, for hosting
 on its own (for example as a portfolio page). The slips move in the visitor's browser using a
 snapshot of the demo figures; links into the rest of the app are removed.
