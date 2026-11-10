@@ -28,7 +28,7 @@ storage/
 .DS_Store
 Thumbs.db
 
-# Third-party reference clone (no license) - never commit
+# Local reference material - never commit
 invoice-processing-automation/
 
 # Local tool config and runtime data

@@ -10,7 +10,15 @@ from jev_invoice.decision.jev_client import JevClient
 from jev_invoice.evaluation import pilot
 from jev_invoice.evaluation.service import STAGES, EvaluationStore
 
+# The evaluation dataset lives in the local test-data folder, which is not in the
+# repository: these tests run where it exists and are skipped elsewhere (such as CI).
+DATASET = Path("invoice generator/testing segments")
+needs_dataset = pytest.mark.skipif(
+    not DATASET.exists(), reason="needs the local evaluation dataset (invoice generator/)"
+)
 
+
+@needs_dataset
 @pytest.mark.asyncio
 async def test_isolated_pilot_preserves_ledger_and_does_not_score_fallbacks(
     tmp_path: Path,
@@ -35,7 +43,7 @@ async def test_isolated_pilot_preserves_ledger_and_does_not_score_fallbacks(
     monkeypatch.setattr(pilot, "build_extraction", lambda _: (None, None))
     monkeypatch.setattr(JevClient, "from_settings", lambda _: None)
     db = EvaluationStore(settings.storage_dir / "evaluations.sqlite3")
-    dataset = db.import_dataset(Path("invoice generator/testing segments"))
+    dataset = db.import_dataset(DATASET)
     run = db.prepare(dataset["dataset_id"], "offline pilot verification", list(STAGES))
     summary = await pilot.run_pilot(run["run_id"])
     assert summary["failed"] == 6

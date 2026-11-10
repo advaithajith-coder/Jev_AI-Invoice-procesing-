@@ -225,9 +225,3 @@ frontend/       React interface, built into web/static/react
 migrations/     Alembic (append-only triggers on PostgreSQL)
 docs/           decisions (ADRs), detailed behaviour, images
 ```
-
-## Acknowledgements
-
-The feature scope was informed by studying
-[afras23/invoice-processing-automation](https://github.com/afras23/invoice-processing-automation).
-No code from that repository is used here.

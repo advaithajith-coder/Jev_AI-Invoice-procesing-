@@ -11,11 +11,20 @@ from jev_invoice.core.errors import ConflictError
 from jev_invoice.evaluation.scoring import MISSING, passes
 from jev_invoice.evaluation.service import STAGES, EvaluationStore, GeneratedOutput, ModelCall
 
+# The evaluation dataset lives in the local test-data folder, which is not in the
+# repository: these tests run where it exists and are skipped elsewhere (such as CI).
+DATASET = Path("invoice generator/testing segments")
+needs_dataset = pytest.mark.skipif(
+    not DATASET.exists(), reason="needs the local evaluation dataset (invoice generator/)"
+)
+
 
 @pytest.fixture
 def evaluation(tmp_path: Path) -> tuple[EvaluationStore, dict[str, Any]]:
+    if not DATASET.exists():
+        pytest.skip("needs the local evaluation dataset (invoice generator/)")
     db = EvaluationStore(tmp_path / "evaluation.db")
-    dataset = db.import_dataset(Path("invoice generator/testing segments"))
+    dataset = db.import_dataset(DATASET)
     assert dataset["cases"] == 100
     assert set(dataset["segments"].values()) == {25}
     return db, db.prepare(dataset["dataset_id"], "Test fixture", list(STAGES))
@@ -130,6 +139,7 @@ def test_exact_missing_null_bool_and_decimal_are_distinct() -> None:
     assert not passes("Infinity", {"mode": "decimal", "expected": "6.25"})
 
 
+@needs_dataset
 def test_evaluation_api_keeps_expected_answers_out_of_inputs(client: TestClient) -> None:
     page = client.get("/evaluations")
     assert page.status_code == 200
