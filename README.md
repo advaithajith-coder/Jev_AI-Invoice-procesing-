@@ -5,7 +5,7 @@ against your vendors, purchase orders and deliveries, asks [TypeSafe Jev](https:
 the judgment questions that rules cannot answer, and decides what happens next, with every
 reason written down.
 
-![How an invoice moves through Parser.AI: invoice in, local OCR for scans, AI extraction, checks (company policy, delivery status, tax rules, credit memo, fraud detection, duplicates and dates), Jev judgment, decision; fraud is blocked, exceptions go to review, approved invoices reach the payables dashboard and early-pay discount alerts, then export to QuickBooks, Xero or CSV](docs/images/parser-flow.png)
+![How an invoice moves through Parser.AI: invoice in, local OCR for scans, AI extraction, checks (company policy, delivery status, tax rules, credit memo, fraud detection, duplicates and dates), Jev judgment, decision; fraud is blocked, exceptions go to review, approved invoices reach the payables dashboard and early-pay discount alerts, then export to QuickBooks &amp; Xero (or CSV)](docs/images/parser-flow.png)
 
 > A portfolio project with a fictional company, **Northwind Analytics Inc** (Massachusetts,
 > USD). Approving an invoice prepares it for export to the accounting system; it never sends a
