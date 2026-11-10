@@ -46,9 +46,9 @@
   </div>
   {% if total %}
   <nav class="tally" aria-label="Filter by status">
-    <a href="/" {% if not status_filter %}aria-current="true"{% endif %}><b>{{ total }}</b><span>All</span></a>
+    <a href="/inbox" {% if not status_filter %}aria-current="true"{% endif %}><b>{{ total }}</b><span>All</span></a>
     {% for status, (label, tone) in STATUSES.items() if counts.get(status) %}
-      <a href="/?status={{ status }}" {% if status_filter == status %}aria-current="true"{% endif %}><b>{{ counts[status] }}</b><span>{{ label }}</span></a>
+      <a href="/inbox?status={{ status }}" {% if status_filter == status %}aria-current="true"{% endif %}><b>{{ counts[status] }}</b><span>{{ label }}</span></a>
     {% endfor %}
   </nav>
   {% endif %}
@@ -88,7 +88,7 @@
   {% else %}
   <div class="empty">
     {% if status_filter %}
-      <p>No invoices with this status. <a href="/">Show all invoices</a>.</p>
+      <p>No invoices with this status. <a href="/inbox">Show all invoices</a>.</p>
     {% else %}
       <p>No invoices yet. Upload one above to watch it go through.</p>
       <p class="muted small">The demo data knows these vendors: Acme Supplies Inc, Halcyon Computing LLC,

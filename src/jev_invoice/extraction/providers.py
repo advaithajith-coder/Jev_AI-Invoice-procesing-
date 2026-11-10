@@ -35,6 +35,7 @@ class LLMResponse:
     output_tokens: int
     model: str
     rate_limit: RateLimit | None = None
+    truncated: bool = False
 
 
 _DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)")
@@ -124,6 +125,7 @@ class GroqProvider:
             output_tokens=usage.completion_tokens if usage else 0,
             model=completion.model or self.model,
             rate_limit=parse_rate_limit(raw.headers),
+            truncated=getattr(completion.choices[0], "finish_reason", None) == "length",
         )
 
 
@@ -211,4 +213,8 @@ class OllamaProvider:
             input_tokens=int(data.get("prompt_eval_count") or 0),
             output_tokens=int(data.get("eval_count") or 0),
             model=str(data.get("model") or self.model),
+            truncated=(
+                data.get("done_reason") == "length"
+                or int(data.get("eval_count") or 0) >= options["num_predict"]
+            ),
         )

@@ -1,0 +1,18 @@
+ACME SUPPLIES INC
+410 Market St, Denver CO 80202
+EIN 84-1234567
+
+INVOICE AS-31040
+Date: {{date-2}}
+Terms: 2% 10, net 30
+Bill to: Northwind Analytics Inc, Accounts Payable
+Customer PO: PO-1009
+
+Item                                              Qty   Unit price      Amount
+Ergonomic office chair                              6       310.00    1,860.00
+
+Subtotal                                                             1,860.00
+Massachusetts sales tax 6.25%                                          116.25
+Total due                                                           $1,976.25
+
+Remit to: Routing 021000021 Account 4417926819

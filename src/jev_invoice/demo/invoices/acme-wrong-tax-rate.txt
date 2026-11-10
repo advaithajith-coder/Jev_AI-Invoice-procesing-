@@ -1,0 +1,18 @@
+ACME SUPPLIES INC
+410 Market St, Denver CO 80202
+EIN 84-1234567
+
+INVOICE AS-31036
+Date: {{date-1}}
+Terms: 2% 10, net 30
+Bill to: Northwind Analytics Inc, Accounts Payable
+Customer PO: PO-1003
+
+Item                                              Qty   Unit price      Amount
+Letter copier paper, 20 lb, case of 10 reams        5        24.99      124.95
+
+Subtotal                                                               124.95
+Sales tax 7.00%                                                          8.75
+Total due                                                             $133.70
+
+Remit to: Routing 021000021 Account 4417926819

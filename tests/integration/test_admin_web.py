@@ -2,6 +2,7 @@
 
 import re
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -38,7 +39,7 @@ def test_vendors_page_lists_seed_vendors_and_forms(client: TestClient) -> None:
     assert "Acme Supplies Inc" in page
     assert "ending 6819" in page
     assert "Blocked" in page  # Vortex Trading
-    assert 'action="/vendors/import"' in page
+    assert 'action="/vendors/import"' not in page
 
 
 def test_add_vendor_from_the_page(client: TestClient) -> None:
@@ -131,6 +132,67 @@ def test_po_form_reports_bad_lines(client: TestClient) -> None:
     assert "description | quantity | unit price" in response.text
 
 
+def test_create_po_with_separate_item_fields(client: TestClient) -> None:
+    vendor_id = _vendor(client).rsplit("/", 1)[1]
+    response = client.post(
+        "/purchase-orders",
+        data={
+            "po_number": "PO-4010",
+            "vendor_id": vendor_id,
+            "person": "Sam",
+            "item_description": ["Cleaning | windows", "Facilities inspection"],
+            "item_quantity": ["2", "1"],
+            "item_price": ["75.50", "100"],
+            "item_account": ["6400", ""],
+        },
+    )
+    assert response.status_code == 200
+    assert "Cleaning | windows" in response.text
+    assert "Facilities inspection" in response.text
+    assert "251.00" in response.text
+    assert "Open, no receiving" in response.text
+
+
+def test_po_item_error_preserves_entered_values(client: TestClient) -> None:
+    vendor_id = _vendor(client).rsplit("/", 1)[1]
+    response = client.post(
+        "/purchase-orders",
+        data={
+            "po_number": "PO-4011",
+            "vendor_id": vendor_id,
+            "person": "Sam",
+            "item_description": "Window cleaning",
+            "item_quantity": "2",
+            "item_price": "not-a-price",
+            "item_account": "6400",
+            "needs_receiving": "1",
+        },
+    )
+    assert response.status_code == 400
+    assert "enter a valid quantity and unit price" in response.text
+    assert 'value="Window cleaning"' in response.text
+    assert 'value="not-a-price"' in response.text
+    assert 'value="6400" selected' in response.text
+
+
+def test_po_rejects_incomplete_item_fields(client: TestClient) -> None:
+    vendor_id = _vendor(client).rsplit("/", 1)[1]
+    response = client.post(
+        "/purchase-orders",
+        data={
+            "po_number": "PO-4012",
+            "vendor_id": vendor_id,
+            "person": "Sam",
+            "item_description": ["Cleaning", "Repair"],
+            "item_quantity": "1",
+            "item_price": "100",
+            "item_account": "",
+        },
+    )
+    assert response.status_code == 400
+    assert "Each item needs" in response.text
+
+
 def test_po_list_shows_seed_orders(client: TestClient) -> None:
     page = client.get("/purchase-orders").text
 
@@ -182,3 +244,40 @@ def test_export_without_name_is_refused(
 
     assert response.status_code == 400
     assert "Enter your name" in response.text
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("item_quantity", "Infinity"), ("item_price", "Infinity"), ("item_price", "NaN")],
+)
+def test_po_rejects_nonfinite_items(client: TestClient, field: str, value: str) -> None:
+    vendor_id = _vendor(client).rsplit("/", 1)[1]
+    data = {
+        "po_number": "PO-FINITE",
+        "vendor_id": vendor_id,
+        "person": "Sam",
+        "item_description": "Cleaning",
+        "item_quantity": "1",
+        "item_price": "100",
+        "item_account": "",
+    }
+    data[field] = value
+    assert client.post("/purchase-orders", data=data).status_code == 400
+
+
+def test_po_does_not_fall_back_when_item_description_missing(client: TestClient) -> None:
+    vendor_id = _vendor(client).rsplit("/", 1)[1]
+    response = client.post(
+        "/purchase-orders",
+        data={
+            "po_number": "PO-MISSING",
+            "vendor_id": vendor_id,
+            "person": "Sam",
+            "lines": "Cleaning | 1 | 100",
+            "item_quantity": "1",
+            "item_price": "100",
+            "item_account": "",
+        },
+    )
+    assert response.status_code == 400
+    assert "Each item needs" in response.text

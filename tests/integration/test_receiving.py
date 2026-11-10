@@ -1,5 +1,6 @@
 """Receiving: record deliveries, and invoices waiting for goods are checked again."""
 
+import sqlite3
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -47,7 +48,7 @@ def _deliver(client: TestClient, hours: str) -> Any:
 
 def test_receiving_lists_what_is_still_to_come(client: TestClient) -> None:
     page = client.get("/receiving").text
-    waiting, recent = page.split("Recent deliveries", 1)
+    waiting, recent = page.split('<section aria-labelledby="done-title">', 1)
 
     assert "PO-1008" in waiting and "Meridian Legal LLP" in waiting
     assert "PO-1002" in waiting  # one of two servers delivered
@@ -68,6 +69,7 @@ def test_delivery_rechecks_the_waiting_invoice_without_calling_models(
     assert body["decision"]["reason_codes"] == ["QUANTITY_VARIANCE"]  # 12 billed, 8 received
     assert "ML-412" in client.get("/receiving").text  # shown as waiting on the order
 
+    calls_before_delivery = (len(llm.calls), len(jev.requests))
     response = _deliver(client, "4")
 
     assert response.status_code == 303
@@ -75,7 +77,8 @@ def test_delivery_rechecks_the_waiting_invoice_without_calling_models(
     after = client.get(f"/api/v1/invoices/{body['id']}").json()
     assert after["status"] == "approved"
     assert after["decision"]["reason_codes"] == []
-    assert len(llm.calls) == 1 and len(jev.requests) == 1  # nothing asked again
+    assert calls_before_delivery[0] == 1
+    assert (len(llm.calls), len(jev.requests)) == calls_before_delivery
     page = client.get(f"/invoices/{body['id']}").text
     assert "Checked again" in page and "every check passes now" in page
     assert client.get("/api/v1/review").json() == []
@@ -97,6 +100,25 @@ def test_a_partial_delivery_keeps_the_invoice_waiting_with_new_reasons(
     assert after["status"] == "pending_review"
     assert after["decision"]["reason_codes"] == ["QUANTITY_VARIANCE"]
     assert "10 received" in str(after["decision"]["findings"])
+
+
+def test_delivery_recheck_cannot_auto_approve_untrusted_gl_coding(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    llm, jev = install_fakes(app, seeded_settings, _meridian_twelve_hours(), jev=[wire_answers()])
+    body = client.post(
+        "/api/v1/invoices", files={"file": ("ML-412.txt", b"ML-412", "text/plain")}
+    ).json()
+    database = seeded_settings.database_url.removeprefix("sqlite+aiosqlite:///")
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE invoice_lines SET gl_source = 'vendor'")
+    calls = (len(llm.calls), len(jev.requests))
+    assert _deliver(client, "4").status_code == 303
+    after = client.get(f"/api/v1/invoices/{body['id']}").json()
+    assert after["status"] == "pending_review"
+    assert after["decision"]["reason_codes"] == ["GL_CODING_REVIEW"]
+    assert after["decision"]["exception_routing"][0]["owner"] == "Finance"
+    assert (len(llm.calls), len(jev.requests)) == calls
 
 
 def test_more_than_is_still_to_come_is_refused(client: TestClient) -> None:
@@ -159,7 +181,10 @@ def test_receiving_can_be_switched_off_and_deliveries_are_then_refused(
 
     page = client.get(f"/purchase-orders/{PO_1008}").text
     assert "Open, no receiving" in page and "Receive now" not in page
-    assert "PO-1008" not in client.get("/receiving").text.split("Recent deliveries")[0]
+    assert (
+        "PO-1008"
+        not in client.get("/receiving").text.split('<section aria-labelledby="done-title">')[0]
+    )
     refused = _deliver(client, "1")
     assert refused.status_code == 400
     assert "matched to the order only" in refused.text
@@ -179,7 +204,7 @@ def test_new_po_needs_receiving_unless_unticked(client: TestClient) -> None:
                 **extra,
             },
         )
-    waiting = client.get("/receiving").text.split("Recent deliveries")[0]
+    waiting = client.get("/receiving").text.split('<section aria-labelledby="done-title">')[0]
 
     assert "PO-7001" in waiting  # ticked: goods, waits for a delivery
     assert "PO-7002" not in waiting  # unticked: a service
@@ -197,6 +222,6 @@ def test_po_import_reads_needs_receiving(client: TestClient) -> None:
         files={"file": ("pos.csv", csv.encode(), "text/csv")},
         data={"person": "Sam"},
     )
-    waiting = client.get("/receiving").text.split("Recent deliveries")[0]
+    waiting = client.get("/receiving").text.split('<section aria-labelledby="done-title">')[0]
 
     assert "PO-8002" in waiting and "PO-8001" not in waiting

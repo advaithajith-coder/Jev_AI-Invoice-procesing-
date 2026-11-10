@@ -26,6 +26,8 @@ STATUS_TONES = {
     "skipped": "muted",
 }
 SOURCE_WORDS = {
+    "validated_correction": "from a validated correction",
+    "learned_correction": "learned from earlier reviewer corrections",
     "po": "from the PO",
     "ai": "chosen by Jev",
     "vendor": "vendor default",

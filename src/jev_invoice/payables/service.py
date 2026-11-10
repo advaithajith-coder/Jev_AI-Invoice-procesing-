@@ -165,6 +165,7 @@ class PayablesService:
         reason: str,
         category: str | None = None,
         actor: str,
+        commit: bool = True,
     ) -> Invoice:
         invoice = await self.get(invoice_id)
         reason = reason.strip()
@@ -196,7 +197,10 @@ class PayablesService:
                 **({"category": category} if kind == "dispute" else {}),
             },
         )
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
+        else:
+            await self._session.flush()
         return invoice
 
     async def release(
@@ -356,6 +360,7 @@ class PayablesService:
         number: str = "",
         amount: Decimal | None = None,
         reason: str = "",
+        commit: bool = True,
     ) -> InvoiceCredit:
         """Apply an uploaded credit note (by id) or a credit entered by hand (number, amount)."""
         invoice = await self.get(invoice_id)
@@ -412,7 +417,10 @@ class PayablesService:
         )
         if credit_note is not None:
             await self._close_credit_note(credit_note, invoice, actor)
-        await self._session.commit()
+        if commit:
+            await self._session.commit()
+        else:
+            await self._session.flush()
         return credit
 
     async def _close_credit_note(self, credit_note: Invoice, target: Invoice, actor: str) -> None:

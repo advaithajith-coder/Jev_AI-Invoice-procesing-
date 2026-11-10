@@ -18,9 +18,9 @@
         <th scope="col">PO</th>
         <th scope="col">Vendor</th>
         <th scope="col">Status</th>
-        <th scope="col" class="num">Ordered</th>
-        <th scope="col" class="num">Received</th>
-        <th scope="col" class="num">Billed</th>
+        <th scope="col" class="num">Ordered ($)</th>
+        <th scope="col" class="num">Received ($)</th>
+        <th scope="col" class="num">Billed ($)</th>
       </tr>
     </thead>
     <tbody>
@@ -32,7 +32,7 @@
           <span class="muted small">issued {{ s.po.issued_date | date }}</span></td>
         <td class="c-ref">{{ s.po.vendor.name }}</td>
         <td class="c-tag"><span class="tag tag--{{ tone }}">{{ label }}</span></td>
-        <td class="c-total num">{{ s.po.total_amount | money(s.po.currency) }}</td>
+        <td class="c-total num">{{ s.po.total_amount | money }}</td>
         <td class="num">{% if s.po.needs_receiving %}{{ s.received_value | money }}{% else %}<span class="muted small">not needed</span>{% endif %}</td>
         <td class="num">{{ s.invoiced_value | money }}</td>
       </tr>
@@ -41,7 +41,7 @@
   </table>
 </div>
 {% else %}
-<div class="empty"><p>No purchase orders yet. Create one below or import a CSV.</p></div>
+<div class="empty"><p>No purchase orders yet. Create one below.</p></div>
 {% endif %}
 
 <div class="two-col">
@@ -64,38 +64,82 @@
             <option value="{{ vendor.id }}" {% if f.get('vendor_id') == vendor.id | string %}selected{% endif %}>{{ vendor.name }}</option>
             {% endfor %}
           </select></div>
-        <div class="field"><label for="currency">Currency <span class="muted">blank = vendor's</span></label>
-          <input id="currency" name="currency" type="text" maxlength="3" value="{{ f.get('currency', '') }}"></div>
       </div>
-      <div class="field"><label for="lines">Lines</label>
-        <textarea id="lines" name="lines" rows="5" placeholder="Toner cartridge, black | 12 | 89.50 | 6000&#10;A4 paper, box of 5 reams | 20 | 24.99" required>{{ f.get('lines', '') }}</textarea>
-        <p class="muted small">One line per item: description | quantity | unit price | expense account (optional, defaults to the vendor's).</p></div>
+      {% macro item_row(item, index) %}
+      <fieldset class="po-item" data-po-item>
+        <legend>Item <span data-item-number>{{ index }}</span></legend>
+        <button class="button po-item__remove" type="button" data-remove-item hidden>Remove<span class="sr-only"> item {{ index }}</span></button>
+        <div class="field">
+          <label for="item-description-{{ index }}">Item description</label>
+          <input id="item-description-{{ index }}" name="item_description" type="text" maxlength="500" value="{{ item.get('description', '') }}" placeholder="e.g. Black toner cartridge" required>
+        </div>
+        <div class="po-item__values">
+          <div class="field"><label for="item-quantity-{{ index }}">Quantity</label>
+            <input id="item-quantity-{{ index }}" name="item_quantity" type="number" min="0.0001" step="any" value="{{ item.get('quantity', '1') }}" required></div>
+          <div class="field"><label for="item-price-{{ index }}">Unit price before tax ($)</label>
+            <input id="item-price-{{ index }}" name="item_price" type="number" min="0" step="0.01" value="{{ item.get('price', '') }}" placeholder="0.00" required></div>
+          <div class="field"><label for="item-net-{{ index }}">Amount before tax ($)</label><output id="item-net-{{ index }}" data-item-net>Calculated from quantity and price</output></div>
+          <div class="field"><label for="item-tax-{{ index }}">Tax rate (%)</label><input id="item-tax-{{ index }}" name="item_tax_rate_percent" type="number" min="0" max="100" step="0.0001" placeholder="0 or 6.25" value="{{ item.get('tax_rate_percent', '') }}"><p class="small muted">Enter 0 for no tax; blank means unknown.</p></div>
+          <div class="field"><label for="item-account-{{ index }}">Account</label>
+            <select id="item-account-{{ index }}" name="item_account">
+              <option value="">Vendor's default</option>
+              {% for account in gl_accounts %}<option value="{{ account.code }}" {% if item.get('account') == account.code %}selected{% endif %}>{{ account.code }} {{ account.name }}</option>{% endfor %}
+            </select></div>
+        </div>
+        <details class="action">
+          <summary>Accounting details <span class="muted">optional</span></summary>
+          <div class="field"><label for="item-accounting-treatment-{{ index }}">Accounting treatment</label><select id="item-accounting-treatment-{{ index }}" name="item_accounting_treatment"><option value="">Let JEV suggest</option>{% for value,label in [('expense','Current expense'),('prepayment_review','Prepayment review'),('asset_review','Asset review')] %}<option value="{{ value }}" {% if item.get('accounting_treatment') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div class="field-row">
+            <div class="field"><label for="item-purchase_category-{{ index }}">Purchase category</label>
+              <select id="item-purchase_category-{{ index }}" name="item_purchase_category">
+                <option value="">Let Jev suggest</option>
+                {% for key, label in [('goods', 'Goods'), ('subscription', 'Subscription'), ('rent', 'Rent'), ('utilities', 'Utilities'), ('professional_service', 'Professional service'), ('milestone', 'Project milestone'), ('other', 'Other')] %}
+                <option value="{{ key }}" {% if item.get('purchase_category') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select></div>
+            {% for key, label in [('department', 'Department'), ('project', 'Project')] %}
+            <div class="field"><label for="item-{{ key }}-{{ index }}">{{ label }}</label>
+              <input type="text" id="item-{{ key }}-{{ index }}" name="item_{{ key }}" maxlength="100" value="{{ item.get(key, '') }}"></div>
+            {% endfor %}
+          </div>
+          <div class="field-row">
+            {% for key, label in [('service_dates_required', 'Service dates required'), ('asset_details_required', 'Asset details required')] %}
+            <div class="field"><label for="item-{{ key }}-{{ index }}">{{ label }}</label>
+              <select id="item-{{ key }}-{{ index }}" name="item_{{ key }}"><option value="">Let Jev judge</option>
+                <option value="true" {% if item.get(key) == 'true' %}selected{% endif %}>Yes</option>
+                <option value="false" {% if item.get(key) == 'false' %}selected{% endif %}>No</option>
+              </select></div>
+            {% endfor %}
+          </div>
+          <div class="field-row">
+            {% for key, label in [('service_start', 'Service start'), ('service_end', 'Service end')] %}
+            <div class="field"><label for="item-{{ key }}-{{ index }}">{{ label }}</label>
+              <input type="date" id="item-{{ key }}-{{ index }}" name="item_{{ key }}" value="{{ item.get(key, '') }}"></div>
+            {% endfor %}
+          </div>
+          <div class="field"><label for="item-asset_details-{{ index }}">Asset details</label>
+            <input type="text" id="item-asset_details-{{ index }}" name="item_asset_details" maxlength="500" value="{{ item.get('asset_details', '') }}"></div>
+          <p class="muted small">Matched invoice lines inherit these values. Jev suggests missing details.</p>
+        </details>
+      </fieldset>
+      {% endmacro %}
+      <section aria-labelledby="po-items-title" data-po-editor>
+        <h3 id="po-items-title">Items</h3>
+        <p class="muted small">Add each item separately. Leave the account on the vendor's default unless you want to choose another.</p>
+        <div data-po-items>
+          {% for item in f.get('items') or [{}] %}{{ item_row(item, loop.index) }}{% endfor %}
+        </div>
+        <template data-po-item-template>{{ item_row({}, 'new') }}</template>
+        <button class="button" type="button" data-add-item hidden>Add item</button>
+        <p class="sr-only" aria-live="polite" data-item-status></p>
+      </section>
+      <p class="small muted">Tax is calculated by grouping line amounts with the same rate and rounding each group's tax to cents. PO rates record your expectation; invoice tax is checked independently.</p>
       <div class="field field--check"><label><input name="needs_receiving" type="checkbox" value="1" {% if not f.get('submitted') or f.get('needs_receiving') %}checked{% endif %}>
         Needs receiving</label>
-        <p class="muted small">Ticked for goods: invoices are cross-checked against what was delivered (record deliveries on Receiving). Untick for services, subscriptions and retainers: invoices are checked against the order only.</p></div>
+        <p class="muted small">Ticked for goods: invoices are cross-checked against what was delivered (record deliveries in Delivery Management). Untick for services, subscriptions and retainers: invoices are checked against the order only.</p></div>
       {{ person_field(person, "person-po") }}
       <button class="button button--primary" type="submit">Create purchase order</button>
     </form>
   </section>
 
-  <section class="panel" aria-labelledby="import-title">
-    <h2 id="import-title">Import from CSV</h2>
-    <p class="muted small">One row per line; rows with the same po_number become one PO. Columns:
-      po_number, vendor, issued_date, currency, description, quantity, unit_price, gl_account,
-      needs_receiving (yes or no; blank means yes).
-      <a href="/purchase-orders/import-template.csv">Download a template</a>.</p>
-    <p class="muted small">If any row has a problem, nothing is imported.</p>
-    {% if imported is defined and imported is not none %}<p class="banner banner--ok" role="status">Imported {{ imported }} purchase order{{ "s" if imported != 1 }}.</p>{% endif %}
-    {% if import_errors %}
-      <div class="banner banner--error" role="alert"><p>Nothing was imported:</p>
-        <ul>{% for message in import_errors %}<li>{{ message }}</li>{% endfor %}</ul></div>
-    {% endif %}
-    <form method="post" action="/purchase-orders/import" enctype="multipart/form-data">
-      <div class="field"><label for="po-file">CSV file</label>
-        <input id="po-file" name="file" type="file" accept=".csv,text/csv" required></div>
-      {{ person_field(person, "person-po-import") }}
-      <button class="button" type="submit">Import purchase orders</button>
-    </form>
-  </section>
 </div>
 {% endblock %}

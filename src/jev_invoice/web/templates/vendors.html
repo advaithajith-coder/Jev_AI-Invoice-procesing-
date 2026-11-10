@@ -84,24 +84,6 @@
     </form>
   </section>
 
-  <section class="panel" aria-labelledby="import-title">
-    <h2 id="import-title">Import from CSV</h2>
-    <p class="muted small">One vendor per row. Columns: name, currency, payment_terms_days, early_pay_discount_pct, early_pay_days, po_required,
-      default_gl_account, bank_account, email_domain, tax_id, status.
-      <a href="/vendors/import-template.csv">Download a template</a>.</p>
-    <p class="muted small">Every row is checked first. If any row has a problem, nothing is
-      imported. Existing vendors are never changed by an import.</p>
-    {% if imported is not none and imported is defined %}<p class="banner banner--ok" role="status">Imported {{ imported }} vendor{{ "s" if imported != 1 }}.</p>{% endif %}
-    {% if import_errors %}
-      <div class="banner banner--error" role="alert"><p>Nothing was imported:</p>
-        <ul>{% for message in import_errors %}<li>{{ message }}</li>{% endfor %}</ul></div>
-    {% endif %}
-    <form method="post" action="/vendors/import" enctype="multipart/form-data">
-      <div class="field"><label for="vendor-file">CSV file</label>
-        <input id="vendor-file" name="file" type="file" accept=".csv,text/csv" required></div>
-      {{ person_field(person, "person-import") }}
-      <button class="button" type="submit">Import vendors</button>
-    </form>
-  </section>
+
 </div>
 {% endblock %}

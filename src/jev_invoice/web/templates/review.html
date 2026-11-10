@@ -25,7 +25,7 @@
         <th scope="col" class="num">Total</th>
         <th scope="col">Proposed</th>
         <th scope="col">Why</th>
-        <th scope="col">Assigned to</th>
+        <th scope="col">Responsible team / assigned to</th>
       </tr>
     </thead>
     <tbody>
@@ -41,7 +41,7 @@
         <td class="c-total num">{{ invoice.total | money(invoice.currency) }}</td>
         <td class="c-tag">{{ action_tag(task.decision.action) }}</td>
         <td class="c-wide reasons-cell">{{ reason_titles(task.decision.reason_codes) }}</td>
-        <td class="c-ref">{% if task.assigned_to %}{{ task.assigned_to }}{% else %}<span class="muted">anyone</span>{% endif %}</td>
+        <td class="c-ref">{% for route in task.decision.exception_routing or [] %}<span class="sub">{{ route.owner }}{% if route.route == 'Supplier clarification needed' %}: supplier clarification{% endif %}</span>{% endfor %}{% if task.assigned_to %}{{ task.assigned_to }}{% else %}<span class="muted">anyone</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

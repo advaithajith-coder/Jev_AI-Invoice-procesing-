@@ -37,9 +37,6 @@ class Rate:
     rate_date: date
     source: str
 
-    def to_base(self, amount: Decimal) -> Decimal:
-        return (amount * self.rate).quantize(Decimal("0.01"))
-
 
 class RateSource(Protocol):
     name: str

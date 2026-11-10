@@ -9,7 +9,9 @@ Bill to: Northwind Analytics Inc
 PO number: PO-1007
 
 IT support retainer, Q4 2026 (October to December)   1 x 2,400.00   2,400.00
+IT consultancy services only, no software or equipment
 
+Sales tax (not taxable)                                                   0.00
 Total due (USD)                                                     2,400.00
 
 PLEASE NOTE: we have moved to a new bank. Our old account is closed and payments

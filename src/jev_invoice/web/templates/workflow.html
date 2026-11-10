@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Workflow | {{ company_short }} AP{% endblock %}
+{% block title %}Parser.AI | Purchase to payable{% endblock %}
 {% block content %}
 {#- Desks on the map: key, x, y, number, title, who handles it, pipeline step (for live data), tone. -#}
 {% set nodes = [
@@ -10,14 +10,15 @@
   ("doc", 770, 150, "5", "Document checks", "Rules in code", "document_checks", ""),
   ("md", 940, 150, "6", "Vendor and PO", "Rules in code", "master_data", ""),
   ("jev", 1110, 150, "7", "Jev judgment", "TypeSafe Jev", "judgment", ""),
-  ("coding", 1110, 270, "8", "Account coding", "TypeSafe Jev", "coding", ""),
-  ("policy", 1110, 390, "9", "Decision", "Fixed policy", "decision", ""),
-  ("review", 940, 520, "", "Review queue", "Waiting for a person", "", "human"),
-  ("person", 770, 520, "", "Person decides", "Approves or rejects", "", "human"),
-  ("approved", 600, 390, "", "Approved", "Ready to export", "", "ok"),
-  ("export", 430, 390, "", "Export file", "Xero, QuickBooks, CSV", "", "ok"),
-  ("accounting", 260, 390, "", "Accounting", "Imported as bills", "", "ok"),
-  ("rejected", 430, 520, "", "Rejected", "Not paid", "", "block"),
+  ("coding", 1110, 270, "8", "Classify lines", "PO, corrections, Jev", "coding", ""),
+  ("finance", 1110, 390, "9", "Company policy", "Rules in code", "", ""),
+  ("tax", 1110, 510, "10", "Tax cross-check", "Rules + Jev if needed", "", ""),
+  ("policy", 1110, 630, "11", "Decision", "Fixed policy", "decision", ""),
+  ("review", 940, 760, "", "Route exceptions", "Owner and reason", "", "human"),
+  ("person", 770, 760, "", "Resolve & review", "Correct, approve, reject", "", "human"),
+  ("approved", 600, 630, "", "Approved", "Ready to export", "", "ok"),
+  ("export", 430, 630, "", "Export file", "Xero, QuickBooks, CSV", "", "ok"),
+  ("rejected", 430, 760, "", "Rejected", "Stops here", "", "block"),
   ("failed", 430, 250, "", "Could not read", "Upload a clearer copy", "", "block"),
 ] %}
 {#- Edges: id, path, tone, label, label x, label y. -#}
@@ -31,38 +32,48 @@
   ("doc_md", "M838,150 H872", "", "", 0, 0),
   ("md_jev", "M1008,150 H1042", "", "", 0, 0),
   ("jev_coding", "M1110,182 V238", "", "", 0, 0),
-  ("coding_policy", "M1110,302 V358", "", "", 0, 0),
-  ("policy_approved", "M1042,390 H668", "ok", "No concerns", 855, 380),
-  ("policy_review", "M1110,422 C1110,500 1060,520 1008,520", "human", "Needs a person", 1062, 458),
-  ("review_person", "M872,520 H838", "human", "", 0, 0),
-  ("person_approved", "M770,488 C770,440 720,408 668,408", "ok", "Approve", 760, 452),
-  ("person_rejected", "M702,520 H498", "block", "Reject", 600, 510),
-  ("approved_export", "M532,390 H498", "ok", "", 0, 0),
-  ("export_accounting", "M362,390 H328", "ok", "", 0, 0),
+  ("coding_finance", "M1110,302 V358", "", "", 0, 0),
+  ("finance_tax", "M1110,422 V478", "", "", 0, 0),
+  ("coding_policy", "M1110,542 V598", "", "", 0, 0),
+  ("policy_approved", "M1042,630 H668", "ok", "Matched PO, trusted coding, controls clear", 855, 620),
+  ("policy_review", "M1110,662 C1110,740 1060,760 1008,760", "human", "Needs a person", 1062, 698),
+  ("review_person", "M872,760 H838", "human", "", 0, 0),
+  ("person_approved", "M770,728 C770,680 720,648 668,648", "ok", "Approve", 760, 692),
+  ("person_rejected", "M702,760 H498", "block", "Reject", 600, 750),
+  ("approved_export", "M532,630 H498", "ok", "Export when requested", 515, 592),
   ("extract_failed", "M600,182 C600,232 560,250 498,250", "block", "Unreadable", 590, 232),
 ] %}
 {% set counts = {"review": "pending_review", "approved": "approved", "export": "exported",
                  "rejected": "rejected", "failed": "failed"} %}
 
-<div class="section-head">
-  <h1>How an invoice moves</h1>
-  <button class="button wf-pause" type="button" data-pause aria-pressed="false">Pause movement</button>
-</div>
-<p class="lede">Every step an invoice passes, from arrival to your accounting system. The moving markers
-  follow the same splits as your last {{ w.sample }} invoice{{ "s" if w.sample != 1 }}. An invoice being
-  processed right now is marked with its number at the step it has reached. Press the
-  <span class="wf-info-hint" aria-hidden="true">i</span> on a step to see how it works: its
-  model, instructions and rules.</p>
-
+{#- The 'every step' page reuses this markup; React redraws it as WorkflowDashboard. -#}
+<div class="{{ 'react-pipeline' if pipeline else 'parser-home' }}">
+<header class="parser-hero">
+  <div class="landing-header__identity">
+    <svg class="landing-mark" viewBox="0 0 96 96" width="84" height="84" aria-hidden="true" focusable="false">
+      <path class="landing-mark__frame" d="M18 84V29c0-9 7-16 16-16h24c18 0 30 12 30 29S76 70 58 70H39v14z"/>
+      <path class="landing-mark__page" d="M34 30h21l14 14v17H34z"/>
+      <path class="landing-mark__accent" d="M55 30v14h14zM82 3l2.5 6.5L91 12l-6.5 2.5L82 21l-2.5-6.5L73 12l6.5-2.5zM8 58h7v7H8zM3 69h7v7H3z"/>
+      <path class="landing-mark__lines" d="M41 43h9m-9 7h20m-20 7h14"/>
+      <path class="landing-mark__sweep" d="M32 34h39"/>
+    </svg>
+    <div>
+      <span class="landing-brand">Parser.AI</span>
+      <p>Your AI powered invoice manager</p>
+    </div>
+  </div>
+</header>
 <div class="wf" data-workflow data-live-url="/workflow/live">
+  <p class="wf-mobile-hint">Scroll across the diagram to follow the full workflow.</p>
   <div class="wf-map">
-    <svg viewBox="0 0 1200 600" role="img" aria-labelledby="wf-title wf-desc">
+    <svg viewBox="0 0 1200 840" role="img" aria-labelledby="wf-title wf-desc">
       <title id="wf-title">Invoice workflow</title>
       <desc id="wf-desc">An invoice arrives and is read. Scans and photos go through the vision model; files
         with text go straight to field extraction. Then document checks, vendor and purchase order checks,
-        Jev's judgment, and account coding. The policy decides: with no concerns the invoice is approved, exported and
-        imported into accounting; otherwise it waits in the review queue until a person approves or
-        rejects it. An invoice that cannot be read stops at "Could not read".</desc>
+        Jev's judgment, line classification, company policy and tax rate and amount cross-checks.
+        Clear invoices are approved and ready for export. Exceptions are routed to an owner for correction,
+        rechecking and human approval or rejection. Approval does not make a payment.
+        An invoice that cannot be read stops at "Could not read".</desc>
 
       <g class="wf-edges">
         {% for id, d, tone, label, lx, ly in edges %}
@@ -103,45 +114,33 @@
       <g class="wf-live" data-live aria-hidden="true"></g>
     </svg>
   </div>
+  <p class="wf-speed" data-speed{% if not w.speed %} hidden{% endif %}>
+    {%- if w.speed -%}
+    Fastest invoice: <strong>{{ w.speed.fastest_ms | duration }}</strong> from arrival to decision
+    (<a href="{{ w.speed.url }}">{{ w.speed.label }}{% if w.speed.number %} {{ w.speed.number }}{% endif %}</a>).
+    Typical: {{ w.speed.typical_ms | duration }} across {{ w.speed.count }} invoices.
+    {%- endif -%}
+  </p>
+  <p class="small muted">Moving slips illustrate the route; numbered markers identify invoices being processed. Company policy and tax checks run after classification, before the recorded decision. Approval prepares a bill for export.</p>
 
-  <div class="wf-panels">
-    <section aria-labelledby="wf-now">
-      <h2 id="wf-now">On the route now</h2>
-      <ul class="wf-list" data-now aria-live="polite">
-        {% for item in w.in_flight %}
-        <li><a href="{{ item.url }}">{{ item.label }}</a> <span class="typed">{{ item.number }}</span>
-          <span class="sub">At step: {{ item.desk_title }}</span></li>
-        {% else %}
-        <li class="muted">Nothing on the route. <a href="/">Upload an invoice</a> to watch it move.</li>
-        {% endfor %}
-      </ul>
-    </section>
-    <section aria-labelledby="wf-latest">
-      <h2 id="wf-latest">Latest outcomes</h2>
-      <ul class="wf-list" data-recent>
-        {% for item in w.recent %}
-        <li><a href="{{ item.url }}">{{ item.label }}</a> <span class="typed">{{ item.number }}</span>
-          <span class="sub"><span class="tag tag--{{ item.tone }}">{{ item.status }}</span> {{ item.ago }}</span></li>
-        {% else %}
-        <li class="muted">No finished invoices yet.</li>
-        {% endfor %}
-      </ul>
-    </section>
-    <section aria-labelledby="wf-split">
-      <h2 id="wf-split">How invoices split</h2>
-      <dl class="fields fields--small wf-splits" data-split>
-        <dt>Scans and photos</dt><dd data-split-scan>{{ (w.split.scan * 100) | round | int }}%</dd>
-        <dt>Approved automatically</dt><dd data-split-auto>{{ (w.split.auto * 100) | round | int }}%</dd>
-        <dt>Sent to a person</dt><dd data-split-review>{{ ((1 - w.split.auto - w.split.failed) * 100) | round | int }}%</dd>
-        <dt>Approved after review</dt><dd data-split-ok>{{ (w.split.review_approved * 100) | round | int }}%</dd>
-        <dt>Could not be read</dt><dd data-split-failed>{{ (w.split.failed * 100) | round | int }}%</dd>
-      </dl>
-      <p class="muted small">Moving markers are a sample in these proportions, not real invoices.
-        Real invoices on the route are the numbered markers.</p>
-    </section>
-  </div>
+<div class="section-head">
+  <h1>Purchase to payable workflow</h1>
+</div>
+<section class="wf-preparation" aria-labelledby="prepare-title">
+  <h2 id="prepare-title">Start with the order</h2>
+  <ol class="wf-preparation__steps">
+    <li><span class="wf-preparation__number" aria-hidden="true">1</span><div><a href="/purchase-orders">Create PO</a><p>Choose the vendor and add the items, quantities and prices. Tick Needs receiving for goods.</p></div></li>
+    <li><span class="wf-preparation__number" aria-hidden="true">2</span><div><a href="/receiving">Add delivery details</a><p>Open the PO in Delivery Management and record the quantities that arrived. Report any missing or damaged goods.</p><span class="small muted">Service orders skip this step.</span></div></li>
+    <li><span class="wf-preparation__number" aria-hidden="true">3</span><div><a href="/inbox">Upload Invoice</a><p>Upload the supplier invoice with its PO reference. The checks above compare it with the order and, for goods, the recorded deliveries.</p></div></li>
+  </ol>
+  <p class="small muted">Invoices can also arrive before delivery; goods invoices with quantities still outstanding need review until the delivery is recorded.</p>
+</section>
+
+
+
+  <p class="wf-upload-prompt"><a href="/inbox">Upload Invoice</a></p>
 </div>
 {% include "_rules.html" %}
 <script type="application/json" id="workflow-data">{{ w | tojson }}</script>
-<script src="{{ url_for('static', path='workflow.js') }}?v={{ asset_version }}" defer></script>
+</div>
 {% endblock %}

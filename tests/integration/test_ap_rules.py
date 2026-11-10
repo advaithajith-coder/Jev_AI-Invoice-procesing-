@@ -1,5 +1,5 @@
 """Accounts-payable rules as companies run them (see db/seed_data.py for the scenarios):
-PO-free vendors, line-by-line 3-way matching with "2% or $50" tolerances, near-duplicates,
+PO-free vendors, line-by-line 3-way matching with "2% or $5" tolerances, near-duplicates,
 date red flags, agreed payment terms, and the approval warnings this demo shows."""
 
 import uuid
@@ -25,8 +25,8 @@ def _service(session: AsyncSession, settings: Settings) -> MatchingService:
     return MatchingService(
         session,
         fingerprint_key=settings.bank_fingerprint_key.get_secret_value().encode(),
-        price_tolerance_pct=Decimal("2.0"),
-        tolerance_max_amount=Decimal("50.00"),
+        price_tolerance_pct=settings.po_price_tolerance_pct,
+        tolerance_max_amount=settings.po_tolerance_max_amount,
     )
 
 
@@ -57,7 +57,7 @@ def test_tolerance_is_the_smaller_of_percent_and_cap(settings: Settings) -> None
     service = _service(None, settings)  # type: ignore[arg-type]
 
     assert service.allowed(Decimal("100.00")) == Decimal("2.00")  # 2% is smaller
-    assert service.allowed(Decimal("1000000.00")) == Decimal("50.00")  # not $20,000
+    assert service.allowed(Decimal("1000000.00")) == Decimal("5.00")  # not $20,000
 
 
 # ── PO required, or not ───────────────────────────────────────────────────────
@@ -101,13 +101,13 @@ async def test_matching_lines_pass_and_are_paired(
 async def test_small_price_rise_within_tolerance_passes(
     session: AsyncSession, settings: Settings
 ) -> None:
-    # 12 x 0.40 = 4.80 over; allowed is 2% of 1,074.00 = 21.48
+    # 12 x 0.40 = 4.80 over; allowed is the $5 cap (2% of 1,074.00 would be 21.48)
     result = await _match(session, settings, **_toner(12, "89.90"))
     assert R.PRICE_VARIANCE not in _codes(result)
 
 
 async def test_price_above_po_is_flagged(session: AsyncSession, settings: Settings) -> None:
-    # 12 x 5.50 = 66.00 over: above both 2% (21.48) and the $50 cap
+    # 12 x 5.50 = 66.00 over: above both 2% (21.48) and the $5 cap
     result = await _match(session, settings, **_toner(12, "95.00"))
 
     assert R.PRICE_VARIANCE in _codes(result)

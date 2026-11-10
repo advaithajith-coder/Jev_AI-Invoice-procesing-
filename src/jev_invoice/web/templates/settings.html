@@ -1,39 +1,41 @@
 {% extends "base.html" %}
-{% from "_history.html" import history, person_field %}
-{% block title %}Settings | {{ company_short }} AP{% endblock %}
+{% block title %}Company policies | {{ company_short }} AP{% endblock %}
 {% block content %}
 <div class="section-head">
-  <h1>Settings</h1>
+  <h1>Company policies</h1>
 </div>
-<p class="lede">Business rules the invoice checks use. A change applies to every invoice processed
-  after you save it; invoices already decided keep their decision.</p>
+<p class="lede">Company rules used by invoice checks. Accounting treatment is checked again before approval and export.</p>
 
 {% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
 
-<div class="two-col">
+<section class="review-evidence" aria-labelledby="accounting-policy-title">
+  <h2 id="accounting-policy-title">Accounting policies</h2>
+  <p class="small muted">Northwind Analytics policies. The approval limit can be changed below.</p>
+  <ul>
+    <li><strong>Subscription costs:</strong> Finance reviews subscriptions spanning multiple months for allocation across their service period.</li>
+    <li><strong>Equipment purchases:</strong> {% if accounting_policy.asset_threshold is not none %}Potential equipment assets costing {{ currency }} {{ accounting_policy.asset_threshold | money }} or more per item need capitalization review.{% else %}No equipment price threshold is configured.{% endif %} Finance confirms eligibility and useful life.</li>
+    <li><strong>Goods invoices:</strong> Orders marked Needs receiving are checked against both the PO and recorded deliveries. Services use the PO only.</li>
+    <li><strong>Approval:</strong> Invoices above {{ currency }} {{ approval_limit | money }} require budget-owner approval. Automatic approval requires every control to pass.</li>
+  </ul>
+  <p>Invoice dates stay unchanged. A posting period is proposed from the invoice date; Finance can record a different posting period with an explanation.</p>
+
+  <p class="small muted">Existing pending invoices use the updated policy when rechecked. These controls propose treatment; they do not create depreciation or amortization entries.</p>
+</section>
+<div>
   <section class="panel" aria-labelledby="limit-title">
     <h2 id="limit-title">Approval limit</h2>
     <p class="setting-now">{{ currency }} <b>{{ approval_limit | money }}</b></p>
-    <p class="muted small">
-      {% if approval_setting %}Set by {{ approval_setting.updated_by }} {{ approval_setting.updated_at | ago }}.
-      {% else %}The default ({{ currency }} {{ default_limit | money }}) from the configuration; nobody has changed it yet.{% endif %}
-    </p>
     <p class="small">Invoices with a total <b>above</b> this need a budget owner's approval. Below it, an
       invoice is approved without a person only when every check passes and Jev sees no risk.</p>
 
-    {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
     <form method="post" action="/settings/approval-limit">
       <div class="field"><label for="approval_limit">New limit ({{ currency }})</label>
         <input id="approval_limit" name="approval_limit" type="text" inputmode="decimal" maxlength="20"
                value="{{ typed if typed is defined else approval_limit }}" required></div>
-      {{ person_field(person, "person-limit") }}
       <button class="button button--primary" type="submit">Save limit</button>
     </form>
   </section>
 
-  <section aria-labelledby="history-title">
-    <h2 id="history-title">History</h2>
-    {{ history(events) }}
-  </section>
 </div>
 {% endblock %}

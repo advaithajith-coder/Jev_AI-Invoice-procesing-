@@ -18,13 +18,12 @@ from sqlalchemy.orm import selectinload
 from jev_invoice.api.dependencies import SessionDep
 from jev_invoice.coding.service import CodingService
 from jev_invoice.core import audit
-from jev_invoice.core.errors import AppError
+from jev_invoice.core.errors import AppError, FormError
 from jev_invoice.db.models import PurchaseOrder
 from jev_invoice.payables.service import PayablesError, PayablesService, parse_amount
 from jev_invoice.web.routes import (
     NOTICES,
     REVIEWER_COOKIE,
-    FormError,
     invoice_context,
     templates,
 )
@@ -298,6 +297,9 @@ async def code_lines(
             vendor=invoice.vendor,
             purchase_order=purchase_order,
             invoice_description=invoice.description,
+            buyer=invoice.bill_to_name,
+            currency=invoice.currency,
+            invoice_date=invoice.invoice_date,
         )
         audit.record(
             session,

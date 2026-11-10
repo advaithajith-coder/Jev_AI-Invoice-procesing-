@@ -84,6 +84,9 @@ class Transcription:
     pages: int
     cost_usd: Decimal
     prompt_version: str = TRANSCRIPTION_PROMPT_VERSION
+    page_texts: tuple[tuple[int, str], ...] = ()
+    unreadable_pages: tuple[int, ...] = ()
+    truncated_pages: tuple[int, ...] = ()
 
 
 class TranscriptionService:
@@ -112,20 +115,29 @@ class TranscriptionService:
         texts: list[str] = []
         cost = Decimal(0)
         model = ""
-        for number, page in enumerate(pages, start=1):
+        page_texts = []
+        unreadable = []
+        truncated = []
+        for index, page in enumerate(pages, start=1):
+            number = page.page_number or index
             if self._ocr_model:
                 call = await self._client.complete(system="", user=OCR_TASK_PROMPT, images=[page])
                 text = clean_ocr_text(call.text)
             else:
                 call = await self._client.complete(
                     system=TRANSCRIPTION_PROMPT,
-                    user=f"Page {number} of {len(pages)}. Transcribe it.",
+                    user=f"Document page {number}. Transcribe it.",
                     images=[page],
                 )
                 text = call.text.strip()
             cost += call.cost_usd
             model = call.model
+            if call.truncated:
+                truncated.append(number)
+            if not text or text == NO_TEXT or "[unreadable]" in text.lower():
+                unreadable.append(number)
             if text and text != NO_TEXT:
+                page_texts.append((number, text))
                 texts.append(text if len(pages) == 1 else f"--- Page {number} ---\n{text}")
 
         if not texts:
@@ -139,4 +151,7 @@ class TranscriptionService:
             pages=len(pages),
             cost_usd=cost,
             prompt_version=self.prompt_version,
+            page_texts=tuple(page_texts),
+            unreadable_pages=tuple(unreadable),
+            truncated_pages=tuple(truncated),
         )

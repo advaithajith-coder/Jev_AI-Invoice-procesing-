@@ -157,7 +157,12 @@ class Overview:
     def due_week(self) -> list[Item]:
         """Planned for payment in the next 7 days (late ones are under "late")."""
         return [
-            item for item in self.items if not item.held and not item.late and item.days_until < 7
+            item
+            for item in self.items
+            if item.terms is not None
+            and not item.held
+            and not item.late
+            and 0 <= item.days_until < 7
         ]
 
     @property

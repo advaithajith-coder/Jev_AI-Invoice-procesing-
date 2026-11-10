@@ -189,7 +189,7 @@ def test_invoice_page_shows_each_steps_output(
     assert "Not needed: the file has text" in page
     assert "Bank account matches our records" in page  # the full checklist opens from the row
     assert "Invoice, asks for payment, no risk signals" in page
-    assert "Needs budget approval: No purchase order" in page
+    assert "Needs a reviewer: No purchase order, Non-PO spend needs approval" in page
     assert "In the review queue" in page
 
 

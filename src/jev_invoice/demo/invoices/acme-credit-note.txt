@@ -11,6 +11,8 @@ Reason: 2 toner cartridges returned, damaged in transit
 Item credited                                     Qty   Unit price      Amount
 Toner cartridge, black, high yield                  2        89.50      179.00
 
-Total credit                                                          $179.00
+Subtotal                                                               179.00
+Massachusetts sales tax 6.25%                                           11.19
+Total credit                                                          $190.19
 
-We have credited your account with $179.00. Please deduct it from invoice AS-31010.
+We have credited your account with $190.19. Please deduct it from invoice AS-31010.

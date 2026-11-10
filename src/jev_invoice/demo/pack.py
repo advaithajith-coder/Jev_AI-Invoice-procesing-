@@ -5,10 +5,11 @@ pack is built ({{date-2}} is two days ago), so the invoices are never stale, dis
 windows are open, and nothing is dated in the future. The order matters: the resent
 Brightline invoice is only a duplicate because the original came first.
 
-Two samples pass every check in code and are caught only by Jev: the urgent gift-card
-request (Meridian) and the instructions aimed at software (Stratus). Stratus may be held
-for the instructions or blocked, when Jev also rates the payment risk as high; both are
-right, since fraud review outranks a hold.
+One sample passes every check in code and is caught only by Jev: the urgent gift-card
+request (Meridian), billed against its PO so nothing else stands out. The instructions
+aimed at software (Stratus) are also Jev's catch, but Stratus bills without a PO, which
+the code flags too. Stratus may be held for the instructions or blocked, when Jev also
+rates the payment risk as high; both are right, since fraud review outranks a hold.
 """
 
 import re
@@ -77,14 +78,15 @@ SAMPLES: tuple[Sample, ...] = (
     Sample(
         "harbor-point-rent.txt",
         "png",
-        "Scanned rent invoice read by the vision model, no PO needed",
-        expect=(A.AUTO_APPROVE,),
+        "Scanned rent invoice read on this machine; no PO, so a budget owner signs off",
+        expect=(A.ROUTE_APPROVAL, A.HOLD_REVIEW),
+        expect_reason=R.NON_PO_APPROVAL_REQUIRED,
     ),
     Sample(
         "halcyon-laptops.txt",
         "pdf",
-        "Over the approval limit, sent to a budget owner",
-        expect=(A.ROUTE_APPROVAL,),
+        "Over the approval limit; laptops also checked as a possible fixed asset",
+        expect=(A.ROUTE_APPROVAL, A.HOLD_REVIEW),
         expect_reason=R.OVER_APPROVAL_LIMIT,
     ),
     Sample(
@@ -106,10 +108,9 @@ SAMPLES: tuple[Sample, ...] = (
     Sample(
         "stratus-telecom.txt",
         "txt",
-        "Hidden instructions aimed at AI: only Jev catches them",
+        "Hidden instructions aimed at AI: Jev flags them",
         expect=(A.HOLD_REVIEW, A.FRAUD_REVIEW),
         expect_reason=R.PROMPT_INJECTION,
-        jev_only=True,
     ),
     Sample(
         "brightline-hosting-resent.txt",
@@ -132,6 +133,121 @@ SAMPLES: tuple[Sample, ...] = (
         "Credit note for returned toner, to apply to AS-31010",
         expect=(A.HOLD_REVIEW,),
         expect_reason=R.CREDIT_NOTE,
+    ),
+    # Error invoices: each is written to trip one check. PO-1003 is billed by several of
+    # them, so the order matters; the lookalike AS-31O10 comes after the rest and also
+    # pushes PO-1003 past what was delivered, which is what a double bill would do.
+    Sample(
+        "pixelforge-wrong-po.txt",
+        "pdf",
+        "Pixelforge quotes Acme's PO-1003",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.PO_VENDOR_MISMATCH,
+    ),
+    Sample(
+        "acme-price-increase.txt",
+        "pdf",
+        "Toner billed at 94.00, the PO says 89.50",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.PRICE_VARIANCE,
+    ),
+    Sample(
+        "acme-extra-items.txt",
+        "pdf",
+        "Staplers billed that were never on the PO",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.LINE_NOT_ON_PO,
+    ),
+    Sample(
+        "acme-wrong-tax-rate.txt",
+        "pdf",
+        "Goods taxed at 7% instead of Massachusetts' 6.25%",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.TAX_REVIEW_REQUIRED,
+    ),
+    Sample(
+        "acme-number-typo.txt",
+        "pdf",
+        "AS-31O10 (letter O): the same bill as AS-31010 again",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.POSSIBLE_DUPLICATE,
+    ),
+    Sample(
+        "acme-cancelled-po.txt",
+        "pdf",
+        "Billed against PO-1009, which was cancelled",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.PO_CLOSED,
+    ),
+    Sample(
+        "halcyon-servers-not-received.txt",
+        "pdf",
+        "Two servers billed, only one delivered",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.QUANTITY_VARIANCE,
+    ),
+    Sample(
+        "pixelforge-over-po.txt",
+        "pdf",
+        "Extra media spend takes the bill past PO-1005",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.PO_AMOUNT_EXCEEDED,
+    ),
+    Sample(
+        "pixelforge-no-po.txt",
+        "pdf",
+        "No PO from a vendor that needs one, sent for approval",
+        expect=(A.ROUTE_APPROVAL, A.HOLD_REVIEW),
+        expect_reason=R.NO_PURCHASE_ORDER,
+    ),
+    Sample(
+        "northline-unknown-po.txt",
+        "pdf",
+        "Quotes PO-1099, which does not exist",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.PO_NOT_FOUND,
+    ),
+    Sample(
+        "meridian-math-error.txt",
+        "pdf",
+        "Lines add up to 2,200.00 but the total says 2,250.00",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.TOTALS_MISMATCH,
+    ),
+    Sample(
+        "stratus-wrong-bill-to.txt",
+        "pdf",
+        "Addressed to Northwind Logistics Ltd, not to us",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.WRONG_BILL_TO,
+    ),
+    Sample(
+        "harbor-point-tax-id.txt",
+        "pdf",
+        "Tax ID 26-5550124; the one on file is 26-5550142",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.TAX_ID_MISMATCH,
+    ),
+    Sample(
+        "oldmill-on-hold.txt",
+        "pdf",
+        "Old Mill Stationers is on hold",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.VENDOR_ON_HOLD,
+    ),
+    Sample(
+        "vortex-blocked.txt",
+        "pdf",
+        "Vortex Trading is blocked",
+        expect=(A.FRAUD_REVIEW,),
+        expect_reason=R.VENDOR_BLOCKED,
+    ),
+    Sample(
+        "summit-unknown-vendor.txt",
+        "pdf",
+        "A vendor that was never set up",
+        expect=(A.HOLD_REVIEW,),
+        expect_reason=R.UNKNOWN_VENDOR,
     ),
     Sample(
         "northline-courier.txt",

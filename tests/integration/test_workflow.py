@@ -21,15 +21,15 @@ def test_workflow_page_draws_every_desk_and_branch(client: TestClient) -> None:
     page = client.get("/workflow").text
 
     for desk in ("arrive", "read", "vision", "extract", "doc", "md", "jev", "policy",
-                 "review", "person", "approved", "export", "accounting", "rejected", "failed"):  # fmt: skip
+                 "review", "person", "approved", "export", "rejected", "failed"):  # fmt: skip
         assert f'data-node="{desk}"' in page
     for branch in ("e-read_vision", "e-read_extract", "e-policy_approved", "e-policy_review",
                    "e-person_rejected", "e-extract_failed"):  # fmt: skip
         assert f'id="{branch}"' in page
-    assert 'aria-current="page">Workflow' in page
-    assert "Pause movement" in page
-    assert "Nothing on the route." in page
-    assert "not real invoices" in page  # the sample slips are labelled as a sample
+    assert 'aria-current="page">Live map' in page
+    assert "Pause movement" not in page
+    assert '<p class="wf-upload-prompt"><a href="/inbox">Upload Invoice</a></p>' in page
+    assert "wf-panels" not in page
 
 
 def test_live_data_with_no_invoices_uses_default_splits(client: TestClient) -> None:
@@ -77,3 +77,26 @@ def test_invoice_names_are_text_not_markup(
     page = client.get("/workflow").text
 
     assert "<img src=x" not in page
+
+
+def test_root_is_a_simple_decision_tree_and_inbox_is_separate(client: TestClient) -> None:
+    page = client.get("/").text
+    assert "Parser.AI" in page
+    for label in ("Total invoices", "Checks passed", "Review required", "Stopped"):
+        assert label in page
+    assert 'aria-current="page">Overview' in page
+    assert 'href="/workflow"' in page and 'href="/workflow/pipeline"' in page
+    assert "<svg viewBox" not in page  # the moving map lives on /workflow
+    assert 'href="/inbox"' in page
+    assert 'aria-controls="workspace-navigation"' in page
+
+
+def test_every_step_page_hands_the_route_to_react(client: TestClient) -> None:
+    page = client.get("/workflow/pipeline").text
+    assert '<div class="react-pipeline">' in page
+    assert 'id="workflow-data"' in page
+    assert 'aria-current="page">Every step' in page
+
+
+def test_inbox_has_the_upload_form(client: TestClient) -> None:
+    assert 'action="/upload"' in client.get("/inbox").text

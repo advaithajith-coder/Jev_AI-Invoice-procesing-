@@ -1,16 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Payables | {{ company_short }} AP{% endblock %}
+{% block title %}Dashboard | {{ company_short }} AP{% endblock %}
 {% from "_macros.html" import rail %}
 {% block content %}
-<div class="section-head">
-  <h1>Payables</h1>
-  <a class="button" href="/payables/invoices.csv?tab={{ tab }}" download>Download CSV</a>
-</div>
-<p class="lede">Approved invoices and what is still owed on each, on {{ o.today | date }}: after deposits, credits,
-  short-pays and payments. While an early-payment discount is open, the invoice is planned for its last day.</p>
+<div class="ap-dashboard">
+<header class="dash-heading">
+  <div><h1>Dashboard</h1><p>Your invoice balances, priorities and payment outlook.</p></div>
+  <div class="dash-actions"><span class="dash-date">As of {{ o.today | date }}</span><a class="button button--primary" href="/inbox">Upload Invoice</a></div>
+</header>
 
-<section id="invoices" aria-labelledby="invoices-title">
-  <h2 id="invoices-title" class="sr-only">Invoices</h2>
+<section class="dash-metrics" aria-label="Invoice balance summary">
+  <a class="dash-metric dash-metric--total" href="/payables?tab=open#invoices"><span class="dash-metric__label">Outstanding balance</span><strong>{{ dashboard.outstanding | money }}</strong><span>{{ cur }} · {{ counts.open }} open invoice{{ 's' if counts.open != 1 }}</span></a>
+  <a class="dash-metric dash-metric--late" href="/payables?tab=late#invoices"><span class="dash-metric__label">Overdue</span><strong>{{ dashboard.overdue | money }}</strong><span>{{ cur }} · {{ counts.late }} invoice{{ 's' if counts.late != 1 }} to follow up</span></a>
+  <a class="dash-metric dash-metric--week" href="/payables?tab=week#invoices"><span class="dash-metric__label">Planned in next 7 days</span><strong>{{ dashboard.upcoming | money }}</strong><span>{{ cur }} · {{ counts.week }} invoice{{ 's' if counts.week != 1 }} after discounts</span></a>
+  <a class="dash-metric dash-metric--held" href="/payables?tab=held#invoices"><span class="dash-metric__label">On hold</span><strong>{{ dashboard.held | money }}</strong><span>{{ cur }} · {{ counts.held }} invoice{{ 's' if counts.held != 1 }} awaiting release</span></a>
+</section>
+
+<div class="dash-overview">
+<section class="dash-outlook" aria-labelledby="outlook-title">
+  <div class="dash-panel-heading"><h2 id="outlook-title">Payment outlook</h2><span>Open balance · {{ cur }}</span></div>
+  {% if o.items %}<div class="dash-balance-bar" aria-hidden="true">{% for bucket in dashboard.buckets %}{% if bucket.amount %}<span class="dash-bucket--{{ bucket.tone }}" style="width:{{ bucket.share }}%"></span>{% endif %}{% endfor %}</div>
+  {% else %}<div class="dash-no-balance"><span aria-hidden="true"></span><p>No outstanding balance yet.<br><small>Approved invoices will populate this view.</small></p></div>{% endif %}
+  <dl class="dash-buckets">{% for bucket in dashboard.buckets %}<div><dt><span class="dash-dot dash-bucket--{{ bucket.tone }}" aria-hidden="true"></span>{{ bucket.label }}</dt><dd>{{ bucket.amount | money }}</dd></div>{% endfor %}</dl>
+  <p class="dash-caption">Balances after deposits, credits, short-pays and payments. Held invoices stay outside the payment plan.</p>
+</section>
+<section class="dash-attention" aria-labelledby="attention-title">
+  <h2 id="attention-title">Needs attention</h2>
+  <a href="/review"><span class="dash-attention__count">{{ review_count }}</span><span><strong>Waiting for review</strong><small>Resolve checks before approval</small></span><span aria-hidden="true">›</span></a>
+  <a href="/payables?tab=late#invoices"><span class="dash-attention__count">{{ counts.late }}</span><span><strong>Overdue invoices</strong><small>Check payment status and follow up</small></span><span aria-hidden="true">›</span></a>
+  <a href="/payables?tab=discount#invoices"><span class="dash-attention__saving">{{ cur }} {{ dashboard.discounts | money }}</span><span><strong>Available discounts</strong><small>{{ counts.discount }} invoice{{ 's' if counts.discount != 1 }} with an open discount</small></span><span aria-hidden="true">›</span></a>
+</section>
+</div>
+
+<section id="invoices" class="dash-invoices" aria-labelledby="invoices-title">
+  <div class="dash-panel-heading"><div><h2 id="invoices-title">Invoice register</h2><p class="dash-caption">{{ rows | length }} invoice{{ 's' if rows | length != 1 }} in {{ tabs[tab] | lower }}</p></div><a class="button" href="/payables/invoices.csv?tab={{ tab }}" download>Download CSV</a></div>
   <nav class="filter-tabs" aria-label="Which invoices">
     {% for key, label in tabs.items() %}
     <a href="?tab={{ key }}" {% if tab == key %}aria-current="page"{% endif %}>{{ label }} <span class="count">{{ counts[key] }}</span></a>
@@ -67,7 +89,8 @@
     </table>
   </div>
   {% else %}
-  <div class="empty"><p>{% if tab == "paid" %}No paid invoices yet. Record payments on an invoice's page.{% elif tab == "open" %}Nothing owed. Approved invoices appear here until they are paid.{% else %}No invoices here.{% endif %}</p></div>
+  <div class="empty dash-empty"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="10" y="5" width="28" height="38" rx="4"/><path d="M17 16h14M17 23h14M17 30h7"/></svg><h3>{{ "No open invoices yet" if tab == "open" else "No invoices in this view" }}</h3><p>{% if tab == "paid" %}No paid invoices yet. Record payments on an invoice's page.{% elif tab == "open" %}Nothing owed. Approved invoices appear here until they are paid.{% else %}No invoices here.{% endif %}</p>{% if tab == "open" %}<a class="button" href="/inbox">Upload Invoice</a>{% else %}<a href="/payables#invoices">View all open invoices</a>{% endif %}</div>
   {% endif %}
 </section>
+</div>
 {% endblock %}

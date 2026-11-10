@@ -37,3 +37,11 @@ data/
 
 # Downloaded skill files (third-party, own licence)
 SKILL*.md
+frontend/node_modules/
+
+# Local testing outputs and disposable helpers
+tmp/
+invoice generator/
+
+# Generated sample PDFs and images (rebuildable; not part of the app)
+output/

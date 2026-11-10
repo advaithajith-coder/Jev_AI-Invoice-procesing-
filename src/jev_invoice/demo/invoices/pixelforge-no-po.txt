@@ -1,0 +1,16 @@
+PIXELFORGE MARKETING LLC
+340 Congress Street, Boston MA 02210
+EIN 27-4448882
+
+INVOICE PF-2026-124
+Invoice date: {{date-1}}
+Due date: {{date+29}}
+Bill to: Northwind Analytics Inc
+
+Description                                       Qty   Unit price      Amount
+Website landing page copywriting, 3 pages           1       950.00      950.00
+
+Sales tax (not taxable)                                                   0.00
+Total due (USD)                                                         950.00
+
+Remit to: Routing 011000138 Account 1530093459

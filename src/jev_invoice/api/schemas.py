@@ -16,6 +16,7 @@ class LineOut(BaseModel):
     quantity: Decimal | None
     unit_price: Decimal | None
     amount: Decimal | None
+    finance_classification: dict[str, Any] | None = None
 
 
 class FindingOut(BaseModel):
@@ -24,6 +25,7 @@ class FindingOut(BaseModel):
 
 
 class DecisionOut(BaseModel):
+    exception_routing: list[dict[str, Any]] = Field(default_factory=list)
     id: uuid.UUID
     action: str
     band: str
@@ -108,6 +110,7 @@ class ResolveReviewIn(BaseModel):
 
 def decision_out(decision: Decision) -> DecisionOut:
     return DecisionOut(
+        exception_routing=decision.exception_routing or [],
         id=decision.id,
         action=decision.action,
         band=decision.band,
@@ -160,6 +163,7 @@ def invoice_out(invoice: Invoice, *, already_received: bool = False) -> InvoiceO
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 amount=line.amount,
+                finance_classification=line.finance_classification,
             )
             for line in invoice.lines
         ],

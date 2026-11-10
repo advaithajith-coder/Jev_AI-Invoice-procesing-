@@ -20,7 +20,7 @@ from jev_invoice.domain.decision import JevAnswers, JevStatus, PolicyOutcome
 from jev_invoice.domain.enums import ActionBand, DecisionAction, ReasonCode
 from jev_invoice.domain.invoice import CheckFinding
 
-POLICY_VERSION = "p7"  # p7: a credit note is held for a person, never proposed for rejection
+POLICY_VERSION = "p11"  # Auto-approval requires a matched PO and trusted line coding.
 
 R = ReasonCode
 
@@ -80,7 +80,13 @@ ACTION_PRIORITY: tuple[tuple[DecisionAction, ActionBand, frozenset[ReasonCode]],
         frozenset(
             {
                 R.CREDIT_NOTE,
+                R.FINANCE_CLASSIFICATION_REVIEW,
+                R.GL_CODING_REVIEW,
+                R.TAX_REVIEW_REQUIRED,
+                R.ACCOUNTING_PERIOD_REVIEW,
+                R.ACCOUNTING_TREATMENT_REVIEW,
                 R.MISSING_REQUIRED_FIELD,
+                R.INCOMPLETE_DOCUMENT,
                 R.TOTALS_MISMATCH,
                 R.INVALID_DATES,
                 R.FOREIGN_CURRENCY,
@@ -110,7 +116,7 @@ ACTION_PRIORITY: tuple[tuple[DecisionAction, ActionBand, frozenset[ReasonCode]],
     (
         DecisionAction.ROUTE_APPROVAL,
         ActionBand.CONFIRM,
-        frozenset({R.OVER_APPROVAL_LIMIT, R.NO_PURCHASE_ORDER}),
+        frozenset({R.OVER_APPROVAL_LIMIT, R.NO_PURCHASE_ORDER, R.NON_PO_APPROVAL_REQUIRED}),
     ),
 )
 

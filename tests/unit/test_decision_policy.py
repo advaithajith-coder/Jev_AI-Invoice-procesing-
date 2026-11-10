@@ -69,6 +69,8 @@ def test_clean_invoice_is_auto_approved_with_no_reasons() -> None:
         (R.GOODS_NOT_RECEIVED, "hold_review", "human"),
         (R.OVER_APPROVAL_LIMIT, "route_approval", "confirm"),
         (R.NO_PURCHASE_ORDER, "route_approval", "confirm"),
+        (R.NON_PO_APPROVAL_REQUIRED, "route_approval", "confirm"),
+        (R.GL_CODING_REVIEW, "hold_review", "human"),
     ],
 )
 def test_single_code_finding(code: ReasonCode, action: str, band: str) -> None:

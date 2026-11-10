@@ -8,7 +8,7 @@ recording deliveries here is what lets clean invoices be approved automatically.
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
@@ -16,6 +16,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from jev_invoice.coding.classification import POFinanceDetails
 from jev_invoice.core import audit
 from jev_invoice.core.errors import ConflictError, NotFoundError
 from jev_invoice.db.models import (
@@ -49,9 +50,13 @@ class POLineIn(BaseModel):
     description: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
     ]
-    quantity: Decimal = Field(gt=0)
-    unit_price: Decimal = Field(ge=0)
+    quantity: Decimal = Field(gt=0, allow_inf_nan=False, decimal_places=4)
+    unit_price: Decimal = Field(ge=0, allow_inf_nan=False, decimal_places=4)
     gl_account_code: str | None = None
+    finance_details: POFinanceDetails | None = None
+    tax_rate_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, allow_inf_nan=False, decimal_places=4
+    )
 
 
 class POCreate(BaseModel):
@@ -160,6 +165,19 @@ class PurchaseOrderService:
                     quantity=line.quantity,
                     unit_price=line.unit_price,
                     gl_account_code=gl,
+                    finance_details={
+                        **(
+                            line.finance_details.model_dump(mode="json", exclude_none=True)
+                            if line.finance_details
+                            else {}
+                        ),
+                        **(
+                            {"tax_rate_percent": str(line.tax_rate_percent)}
+                            if line.tax_rate_percent is not None
+                            else {}
+                        ),
+                    }
+                    or None,
                 )
             )
         po = PurchaseOrder(
@@ -171,7 +189,11 @@ class PurchaseOrderService:
             issued_date=data.issued_date,
             needs_receiving=data.needs_receiving,
             total_amount=sum(
-                ((line.quantity * line.unit_price).quantize(_CENT) for line in lines), Decimal(0)
+                (
+                    (line.quantity * line.unit_price).quantize(_CENT, rounding=ROUND_HALF_UP)
+                    for line in lines
+                ),
+                Decimal(0),
             ),
             lines=lines,
             receipts=[],

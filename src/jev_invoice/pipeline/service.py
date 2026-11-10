@@ -14,6 +14,7 @@ The same file uploaded twice is recognised by its SHA-256 and processed only onc
 """
 
 import hashlib
+import time
 import uuid
 from collections import Counter
 from collections.abc import Callable
@@ -29,11 +30,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from jev_invoice.accounting.controls import check_accounting
 from jev_invoice.coding.service import QUESTION_SET_VERSION as CODING_QUESTION_SET
 from jev_invoice.coding.service import CodingService
 from jev_invoice.config import Settings
 from jev_invoice.core import audit
-from jev_invoice.core.errors import AppError
+from jev_invoice.core.errors import AppError, IncompleteDocumentError
 from jev_invoice.db.models import (
     Decision,
     GLAccount,
@@ -44,26 +46,39 @@ from jev_invoice.db.models import (
 )
 from jev_invoice.decision.policy import ACTION_PRIORITY, POLICY_VERSION
 from jev_invoice.decision.questions import QUESTION_SET_VERSION, build_questions
+from jev_invoice.decision.routing import route_exceptions
 from jev_invoice.decision.service import DecisionService, Judgment
 from jev_invoice.domain.checks import CheckOutcome, run_document_checks
 from jev_invoice.domain.decision import DecisionOutcome, JevAnswers, JevStatus
-from jev_invoice.domain.enums import ActionBand, DocumentType, InvoiceStatus, ReviewStatus
+from jev_invoice.domain.enums import (
+    ActionBand,
+    DecisionAction,
+    DocumentType,
+    InvoiceStatus,
+    ReasonCode,
+    ReviewStatus,
+)
 from jev_invoice.domain.invoice import CheckFinding, ExtractedInvoice
 from jev_invoice.domain.vendors import bank_account_last4
+from jev_invoice.evaluation.telemetry import current_calls
 from jev_invoice.extraction.prompts import SYSTEM_PROMPT
 from jev_invoice.extraction.service import ExtractionResult, ExtractionService
 from jev_invoice.extraction.vision import TranscriptionService
 from jev_invoice.fx.service import ExchangeRates, Rate, RateSource
-from jev_invoice.ingest.parsing import ParsedDocument, parse_document
+from jev_invoice.ingest.parsing import ParsedDocument, join_pages, parse_document
 from jev_invoice.ingest.storage import LocalFileStorage
 from jev_invoice.masterdata.rules import RulesService
 from jev_invoice.matching.service import MatchingService, MatchResult, normalize_reference
+from jev_invoice.pipeline.approval import approval_findings
+from jev_invoice.pipeline.exceptions import sync_exceptions
 from jev_invoice.pipeline.steps import StepRecorder
+from jev_invoice.tax.massachusetts import check_tax
 
 log = structlog.get_logger(__name__)
 
 _TEXT_PREVIEW_CHARS = 4000
 SOURCE_WORDS = {
+    "validated_correction": "from a validated correction",
     "po": "from the PO",
     "ai": "chosen by Jev",
     "vendor": "vendor default",
@@ -179,6 +194,9 @@ class InvoicePipeline:
                 "page_images": len(parsed.page_images),
                 "text_characters": len(parsed.text),
                 "text_preview": parsed.text[:_TEXT_PREVIEW_CHARS],
+                "text_pages": [i for i, text in enumerate(parsed.page_texts, 1) if text],
+                "vision_pages": [page.page_number for page in parsed.page_images],
+                "omitted_pages": list(parsed.omitted_pages),
             }
         return ProcessResult(invoice.id, already_received=False)
 
@@ -200,13 +218,63 @@ class InvoicePipeline:
         invoice.status = InvoiceStatus.RECEIVED
         await self._session.commit()
         steps = StepRecorder(self._session, invoice_id)
+        calls: list[dict[str, Any]] = []
+        token = current_calls.set(calls)
+        started = time.monotonic()
         try:
             await self._process(invoice, steps)
+        except IncompleteDocumentError as exc:
+            await self._hold_incomplete(invoice, steps, exc)
         except AppError as exc:
             await self._fail(invoice_id, steps, exc.code, exc.message)
         except Exception:
             log.exception("pipeline_crashed")
             await self._fail(invoice_id, steps, "internal_error", "Processing failed unexpectedly.")
+        finally:
+            current_calls.reset(token)
+            stored = await self._session.get(Invoice, invoice_id)
+            if stored is not None:
+                info = dict(stored.additional_info or {})
+                history = list(info.get("processing_measurements", []))
+                history.append(
+                    {
+                        "recorded_at": datetime.now(UTC).isoformat(),
+                        "wall_time_ms": round((time.monotonic() - started) * 1000, 1),
+                        "calls": calls,
+                        "note": "Job execution time includes waits and retries. Upload queue time "
+                        "is excluded. SDK-internal retry charges may be unreported.",
+                    }
+                )
+                stored.additional_info = {**info, "processing_measurements": history}
+                await self._session.commit()
+
+    async def _hold_incomplete(
+        self, invoice: Invoice, steps: StepRecorder, error: IncompleteDocumentError
+    ) -> None:
+        coverage = dict((invoice.additional_info or {}).get("document_coverage", {}))
+        coverage.update(error.details)
+        coverage.update(status="incomplete", reason=error.message)
+        invoice.additional_info = {**(invoice.additional_info or {}), "document_coverage": coverage}
+        outcome = DecisionOutcome(
+            action=DecisionAction.HOLD_REVIEW,
+            band=ActionBand.HUMAN,
+            reason_codes=[ReasonCode.INCOMPLETE_DOCUMENT],
+            rationale=error.message,
+            findings=[CheckFinding(code=ReasonCode.INCOMPLETE_DOCUMENT, message=error.message)],
+            jev_status="not_run",
+            question_set_version="document-coverage-v1",
+            policy_version=POLICY_VERSION,
+            inputs_sha256=hashlib.sha256(
+                f"{invoice.file_sha256}:{error.message}".encode()
+            ).hexdigest(),
+        )
+        outcome.exception_routing = await route_exceptions(
+            outcome, None, self._settings.coding_min_confidence
+        )
+        async with steps.run("outcome") as step:
+            task = await self._record_decision(invoice, outcome)
+            step.summary = error.message
+            step.details = {"coverage": coverage, "review_task_id": str(task.id) if task else None}
 
     async def _process(self, invoice: Invoice, steps: StepRecorder) -> None:
         parsed = self._parse(
@@ -221,8 +289,21 @@ class InvoicePipeline:
         findings.extend(match.findings)
 
         judgment = await self._judge(text, steps)
-        await self._code(invoice, match, steps)
+        await self._code(invoice, match, steps, text)
+        findings.extend(_finance_findings(invoice))
+        findings.extend(
+            approval_findings(invoice, suspense_account=self._settings.export_suspense_account)
+        )
+        findings.extend(await check_accounting(self._session, invoice))
+        if self._settings.massachusetts_tax_checks_enabled:
+            findings.extend(
+                await check_tax(invoice, self._decisions.jev_client, session=self._session)
+            )
         outcome = await self._decide(findings, judgment, steps)
+        routing = await route_exceptions(
+            outcome, self._decisions.jev_client, self._settings.coding_min_confidence
+        )
+        outcome = outcome.model_copy(update={"exception_routing": routing})
 
         async with steps.run("outcome") as step:
             task = await self._record_decision(invoice, outcome)
@@ -284,13 +365,43 @@ class InvoicePipeline:
             stored_bank=(invoice.bank_account_last4, invoice.bank_account_fingerprint),
         )
         findings.extend(match.findings)
+        findings.extend(_finance_findings(invoice))
+        findings.extend(
+            approval_findings(invoice, suspense_account=self._settings.export_suspense_account)
+        )
+        findings.extend(await check_accounting(self._session, invoice))
+        if self._settings.massachusetts_tax_checks_enabled:
+            findings.extend(await check_tax(invoice, session=self._session))
         outcome = await self._decide(findings, judgment, steps)
+        # Tax rechecks reuse saved treatments and never call a model.
         outcome = outcome.model_copy(
-            update={"jev_model": previous.jev_model, "jev_latency_ms": previous.jev_latency_ms}
+            update={
+                "jev_model": previous.jev_model,
+                "jev_latency_ms": previous.jev_latency_ms,
+                "exception_routing": [
+                    r for r in previous.exception_routing or [] if r["code"] in outcome.reason_codes
+                ],
+            }
         )
 
+        existing_routes = {r["code"]: r for r in outcome.exception_routing}
+        defaults = await route_exceptions(outcome, None, self._settings.coding_min_confidence)
+        refreshed_routes = []
+        for fallback in defaults:
+            route = existing_routes.get(fallback["code"], fallback)
+            current_evidence = [f.message for f in outcome.findings if str(f.code) == route["code"]]
+            refreshed_routes.append(
+                {
+                    **route,
+                    "evidence": current_evidence,
+                    "reason": f"{' '.join(current_evidence)} Responsible team: {route['owner']}.",
+                    "evidence_rechecked": True,
+                }
+            )
+        outcome = outcome.model_copy(update={"exception_routing": refreshed_routes})
         async with steps.run("outcome") as step:
             decision = self._new_decision(invoice, outcome)
+            await sync_exceptions(self._session, invoice, decision, actor=actor)
             audit.record(
                 self._session,
                 action="invoice.rechecked",
@@ -438,7 +549,23 @@ class InvoicePipeline:
     async def _transcribe(
         self, invoice: Invoice, parsed: ParsedDocument, steps: StepRecorder
     ) -> str:
+        coverage: dict[str, Any] = {
+            "status": "complete",
+            "total_pages": parsed.page_count,
+            "text_pages": [i for i, text in enumerate(parsed.page_texts, 1) if text],
+            "vision_pages": [],
+            "omitted_pages": list(parsed.omitted_pages),
+        }
+        invoice.additional_info = {**(invoice.additional_info or {}), "document_coverage": coverage}
+        if parsed.omitted_pages:
+            raise IncompleteDocumentError(
+                "The document exceeds the configured vision page limit. Pages "
+                + ", ".join(map(str, parsed.omitted_pages))
+                + " were not read. Increase the limit and reprocess the complete document.",
+                details=coverage,
+            )
         if not parsed.needs_ocr:
+            coverage["processed_pages"] = len(coverage["text_pages"])
             await steps.skip("transcribe", "Not needed: the document has a text layer")
             return parsed.text
         async with steps.run("transcribe") as step:
@@ -451,7 +578,21 @@ class InvoicePipeline:
                 f"Sending {len(parsed.page_images)} page image(s) to the vision model"
             )
             transcription = await self._transcription.transcribe(parsed.page_images)
-            invoice.transcribed_text = transcription.text
+            pages = list(parsed.page_texts)
+            for number, text in transcription.page_texts:
+                pages[number - 1] = text
+            combined = join_pages(tuple(pages)) if pages else transcription.text
+            coverage.update(
+                vision_pages=[number for number, _ in transcription.page_texts],
+                processed_pages=len(coverage["text_pages"]) + len(transcription.page_texts),
+                unreadable_pages=list(transcription.unreadable_pages),
+                truncated_pages=list(transcription.truncated_pages),
+            )
+            invoice.additional_info = {
+                **(invoice.additional_info or {}),
+                "document_coverage": coverage,
+            }
+            invoice.transcribed_text = combined
             invoice.transcription_model = transcription.model
             invoice.transcription_cost_usd = transcription.cost_usd
             audit.record(
@@ -475,10 +616,21 @@ class InvoicePipeline:
                 "pages": transcription.pages,
                 "prompt_version": transcription.prompt_version,
                 "cost_usd": transcription.cost_usd,
-                "text": transcription.text,
+                "text": combined,
+                "coverage": coverage,
                 "instructions": self._transcription.instructions,
             }
-        return transcription.text
+            if transcription.unreadable_pages or transcription.truncated_pages:
+                affected = sorted(
+                    set(transcription.unreadable_pages + transcription.truncated_pages)
+                )
+                raise IncompleteDocumentError(
+                    "Reading is incomplete on pages "
+                    + ", ".join(map(str, affected))
+                    + ". Supply readable complete pages before approval.",
+                    details=coverage,
+                )
+        return combined
 
     async def _extract(self, invoice: Invoice, text: str, steps: StepRecorder) -> ExtractionResult:
         if self._extraction is not None:
@@ -515,7 +667,9 @@ class InvoicePipeline:
             }
         return result
 
-    async def _code(self, invoice: Invoice, match: MatchResult, steps: StepRecorder) -> None:
+    async def _code(
+        self, invoice: Invoice, match: MatchResult, steps: StepRecorder, text: str = ""
+    ) -> None:
         """Code each line to an account: the PO's, Jev's confident choice, or a fallback."""
         if not invoice.lines:
             await steps.skip(
@@ -533,6 +687,10 @@ class InvoicePipeline:
                 vendor=match.vendor,
                 purchase_order=match.purchase_order,
                 invoice_description=invoice.description,
+                document_text=text,
+                buyer=invoice.bill_to_name,
+                currency=invoice.currency,
+                invoice_date=invoice.invoice_date,
             )
             names = dict(
                 (row.code, row.name)
@@ -550,6 +708,8 @@ class InvoicePipeline:
                 "cost_usd": coding.cost_usd,
                 "min_confidence": self._settings.coding_min_confidence,
                 "questions": coding.questions,
+                "classification": coding.classification,
+                "finance_lines": [line.finance_classification for line in invoice.lines],
                 "lines": [
                     {
                         "line_no": line.line_no,
@@ -696,6 +856,7 @@ class InvoicePipeline:
         invoice.bill_to_name = fields.bill_to_name
         invoice.vendor_tax_id = fields.vendor_tax_id
         invoice.additional_info = {
+            **(invoice.additional_info or {}),
             "description_printed": fields.description_printed,
             "payment_terms": fields.payment_terms_text,
             "late_fee_terms": fields.late_fee_terms,
@@ -750,6 +911,7 @@ class InvoicePipeline:
             invoice_id=invoice.id,
             action=outcome.action,
             band=outcome.band,
+            exception_routing=outcome.exception_routing,
             reason_codes=[str(code) for code in outcome.reason_codes],
             findings=[finding.model_dump(mode="json") for finding in outcome.findings],
             rationale=outcome.rationale,
@@ -772,6 +934,7 @@ class InvoicePipeline:
                 "action": outcome.action,
                 "band": outcome.band,
                 "reasons": decision.reason_codes,
+                "exception_routing": decision.exception_routing,
             },
         )
         return decision
@@ -780,6 +943,7 @@ class InvoicePipeline:
         self, invoice: Invoice, outcome: DecisionOutcome
     ) -> ReviewTask | None:
         decision = self._new_decision(invoice, outcome)
+        await sync_exceptions(self._session, invoice, decision)
 
         if outcome.band == ActionBand.AUTO:
             invoice.status = InvoiceStatus.APPROVED
@@ -852,3 +1016,30 @@ def _deciding_reasons(outcome: DecisionOutcome) -> list[str]:
 def _question_text(question: Any) -> str:
     instructions = getattr(question, "instructions", None)
     return str(instructions) if instructions else ""
+
+
+def _finance_findings(invoice: Invoice) -> list[CheckFinding]:
+    findings = []
+    for line in invoice.lines:
+        finance = line.finance_classification or {}
+        fields = finance.get("fields", {})
+        reasons = [r for r in finance.get("review_reasons", []) if not r.startswith("Missing ")]
+        for requirement, names in (
+            ("service_dates_required", ("service_start", "service_end")),
+            ("asset_details_required", ("asset_details",)),
+        ):
+            if fields.get(requirement, {}).get("value") is True:
+                reasons.extend(
+                    f"Missing {name.replace('_', ' ')}"
+                    for name in names
+                    if not fields.get(name, {}).get("value")
+                )
+        for reason in reasons:
+            if reason.startswith("Missing ") or "conflict" in reason:
+                findings.append(
+                    CheckFinding(
+                        code=ReasonCode.FINANCE_CLASSIFICATION_REVIEW,
+                        message=f"Line {line.line_no}: {reason}",
+                    )
+                )
+    return findings

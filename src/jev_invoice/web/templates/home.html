@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Parser.AI | Overview{% endblock %}
+{% block content %}
+{%- set c = w.counts -%}
+{%- set passed = c.approved + c.exported -%}
+{%- set stopped = c.failed + c.rejected -%}
+<div class="home">
+<header class="parser-hero">
+  <div class="landing-header__identity">
+    <svg class="landing-mark" viewBox="0 0 96 96" width="84" height="84" aria-hidden="true" focusable="false">
+      <path class="landing-mark__frame" d="M18 84V29c0-9 7-16 16-16h24c18 0 30 12 30 29S76 70 58 70H39v14z"/>
+      <path class="landing-mark__page" d="M34 30h21l14 14v17H34z"/>
+      <path class="landing-mark__accent" d="M55 30v14h14zM82 3l2.5 6.5L91 12l-6.5 2.5L82 21l-2.5-6.5L73 12l6.5-2.5zM8 58h7v7H8zM3 69h7v7H3z"/>
+      <path class="landing-mark__lines" d="M41 43h9m-9 7h20m-20 7h14"/>
+      <path class="landing-mark__sweep" d="M32 34h39"/>
+    </svg>
+    <div>
+      <span class="landing-brand">Parser.AI</span>
+      <p>Your AI powered invoice manager</p>
+    </div>
+  </div>
+</header>
+
+<section class="dtree" aria-labelledby="dtree-title">
+  <h1 id="dtree-title">Where every invoice goes</h1>
+  <p class="dtree__lead">Every invoice is read and checked. It is either cleared, sent to a person, or stopped.</p>
+
+  <div class="dtree__root">
+    <a class="dtree__box dtree__box--total" href="/inbox">
+      <span class="dtree__label">Total invoices</span>
+      <strong>{{ c.total }}</strong>
+      {%- if c.in_flight %}<span class="dtree__note">{{ c.in_flight }} in processing now</span>{% endif -%}
+    </a>
+  </div>
+
+  <ul class="dtree__branches">
+    <li>
+      <a class="dtree__box dtree__box--ok" href="/payables">
+        <span class="dtree__label">Checks passed</span>
+        <strong>{{ passed }}</strong>
+        <span class="dtree__note">Approved, ready to export{% if c.auto %} ({{ c.auto }} with no one touching them){% endif %}</span>
+      </a>
+    </li>
+    <li>
+      <a class="dtree__box dtree__box--review" href="/review">
+        <span class="dtree__label">Review required</span>
+        <strong>{{ c.pending_review }}</strong>
+        <span class="dtree__note">Waiting for a person to check</span>
+      </a>
+    </li>
+    <li>
+      <a class="dtree__box dtree__box--stop" href="/inbox">
+        <span class="dtree__label">Stopped</span>
+        <strong>{{ stopped }}</strong>
+        <span class="dtree__note">{{ c.failed }} could not be read, {{ c.rejected }} rejected</span>
+      </a>
+    </li>
+  </ul>
+
+  {% if w.speed %}
+  <p class="dtree__speed">Fastest invoice: <strong>{{ w.speed.fastest_ms | duration }}</strong> from arrival to decision
+    (<a href="{{ w.speed.url }}">{{ w.speed.label }}{% if w.speed.number %} {{ w.speed.number }}{% endif %}</a>).
+    Typical: {{ w.speed.typical_ms | duration }} across {{ w.speed.count }} invoices.</p>
+  {% endif %}
+
+  <p class="dtree__more">
+    <a href="/workflow">See the live map</a>
+    <a href="/workflow/pipeline">See every step</a>
+  </p>
+</section>
+</div>
+{% endblock %}

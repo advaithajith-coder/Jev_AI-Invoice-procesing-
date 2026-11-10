@@ -17,6 +17,11 @@ class AppError(Exception):
         self.details = details or {}
 
 
+class FormError(AppError):
+    status_code = 400
+    code = "invalid_form"
+
+
 class NotFoundError(AppError):
     status_code = 404
     code = "not_found"
@@ -46,6 +51,13 @@ class BudgetExceededError(AppError):
 
     status_code = 429
     code = "budget_exceeded"
+
+
+class IncompleteDocumentError(AppError):
+    """Reading omitted or could not establish some of the document's contents."""
+
+    status_code = 422
+    code = "incomplete_document"
 
 
 class DecisionError(AppError):

@@ -1,0 +1,18 @@
+HALCYON COMPUTING LLC
+2200 Mission College Blvd, Santa Clara CA 95054
+EIN 47-9876543
+
+INVOICE HC-55907
+Invoice date: {{date-3}}
+Payment terms: 1% 15, net 45
+Bill to: Northwind Analytics Inc
+Purchase order: PO-1002
+
+Description                                       Qty   Unit price       Amount
+Rack server, 2U, dual CPU, 256GB RAM                2     4,800.00     9,600.00
+
+Subtotal                                                               9,600.00
+Massachusetts sales tax 6.25%                                            600.00
+Total due (USD)                                                       10,200.00
+
+Remit to: Routing 121000358 Account 5698765432

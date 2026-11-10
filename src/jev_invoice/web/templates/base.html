@@ -5,43 +5,55 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>{% block title %}{{ company_short }} Accounts payable{% endblock %}</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', path='brand/document-mark.png') }}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400..700;1,400&family=Source+Code+Pro:wght@400;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v={{ asset_version }}">
-  <script src="{{ url_for('static', path='app.js') }}?v={{ asset_version }}" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='react/design.css') }}?v={{ asset_version }}">
+  <script type="module" src="{{ url_for('static', path='react/app.js') }}?v={{ asset_version }}"></script>
 </head>
 <body>
+  <div id="react-root">
   <a class="skip" href="#main">Skip to content</a>
   <div class="shell">
     <header class="side">
       <a class="wordmark" href="/">
-        <span class="wordmark__name">{{ company_short }}</span>
-        <span class="wordmark__desk">Accounts payable</span>
+        <img class="wordmark__icon" src="{{ url_for('static', path='brand/document-mark.png') }}" alt="" width="40" height="40">
+        <span>
+          <span class="wordmark__name">Parser.AI</span>
+          <span class="wordmark__desk">Accounts payable</span>
+        </span>
       </a>
-      <nav class="side__nav" aria-label="Main">
+      <button class="button mobile-menu" type="button" aria-expanded="false" aria-controls="workspace-navigation">Menu</button>
+      <nav id="workspace-navigation" class="side__nav" aria-label="Main">
         <p class="side__group" id="nav-invoices">Invoices</p>
         <ul aria-labelledby="nav-invoices">
-          <li><a href="/" {% if nav == "inbox" %}aria-current="page"{% endif %}>Inbox</a></li>
+          <li><a href="/" {% if nav == "home" %}aria-current="page"{% endif %}>Overview</a></li>
+          <li><a href="/workflow" {% if nav == "workflow" %}aria-current="page"{% endif %}>Live map</a></li>
+          <li><a href="/workflow/pipeline" {% if nav == "pipeline" %}aria-current="page"{% endif %}>Every step</a></li>
+          <li><a href="/inbox" {% if nav == "inbox" %}aria-current="page"{% endif %}>Inbox</a></li>
           <li><a href="/review" {% if nav == "review" %}aria-current="page"{% endif %}>Review queue</a></li>
-          <li><a href="/payables" {% if nav == "payables" %}aria-current="page"{% endif %}>Payables</a></li>
+          <li><a href="/payables" {% if nav == "payables" %}aria-current="page"{% endif %}>Dashboard</a></li>
           <li><a href="/exports" {% if nav == "exports" %}aria-current="page"{% endif %}>Exports</a></li>
-          <li><a href="/workflow" {% if nav == "workflow" %}aria-current="page"{% endif %}>Workflow</a></li>
         </ul>
         <p class="side__group" id="nav-records">Records</p>
         <ul aria-labelledby="nav-records">
           <li><a href="/vendors" {% if nav == "vendors" %}aria-current="page"{% endif %}>Vendors</a></li>
           <li><a href="/purchase-orders" {% if nav == "pos" %}aria-current="page"{% endif %}>Purchase orders</a></li>
-          <li><a href="/receiving" {% if nav == "receiving" %}aria-current="page"{% endif %}>Receiving</a></li>
+          <li><a href="/receiving" {% if nav == "receiving" %}aria-current="page"{% endif %}>Delivery Management</a></li>
           <li><a href="/accounts" {% if nav == "accounts" %}aria-current="page"{% endif %}>Chart of accounts</a></li>
-          <li><a href="/settings" {% if nav == "settings" %}aria-current="page"{% endif %}>Settings</a></li>
+          <li><a href="/tax-rules" {% if nav == "tax" %}aria-current="page"{% endif %}>Tax rules</a></li>
+          <li><a href="/settings" {% if nav == "settings" %}aria-current="page"{% endif %}>Company policies</a></li>
         </ul>
       </nav>
       <p class="side__credit">Invoice processing by Jev</p>
     </header>
     <main id="main" class="sheet">
+      <div class="workspace-context"><span>{{ company_short }}</span><span>Accounts payable</span></div>
       {% block content %}{% endblock %}
     </main>
+  </div>
   </div>
 </body>
 </html>

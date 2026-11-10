@@ -25,6 +25,7 @@ from typesafe_sdk import (
 from jev_invoice.config import Settings
 from jev_invoice.core.errors import DecisionError
 from jev_invoice.core.resilience import CircuitBreaker
+from jev_invoice.evaluation.telemetry import record_call
 
 log = structlog.get_logger(__name__)
 
@@ -106,13 +107,14 @@ class JevClient:
             CircuitOpenError: too many recent failures; calls are paused.
             DecisionError: the call failed after the SDK's retries.
         """
+        queued = self._clock()
         async with self._pace:  # one call at a time, spaced by jev_min_interval_seconds
             waited = self.expected_wait_seconds()
             if waited > 0:
                 log.info("jev_waiting_for_rate_limit", seconds=round(waited, 1))
                 await self._sleep(waited)
             try:
-                return await self._call(state, questions, waited)
+                return await self._call(state, questions, self._clock() - queued)
             finally:
                 self._last_call_end = self._clock()
 
@@ -121,9 +123,31 @@ class JevClient:
     ) -> JevResult:
         self._breaker.before_call()
         start = time.monotonic()
+        first = next(iter(questions), "")
+        stage = (
+            "tax"
+            if first.startswith("tax_")
+            else "classification"
+            if first.startswith("finance_")
+            else "gl_coding"
+            if first.startswith("line_")
+            else "routing"
+            if first.startswith("route_")
+            else "judgment"
+        )
         try:
             response = await self._sdk.system_one(state, questions)
         except TypeSafeError as exc:
+            record_call(
+                stage=stage,
+                provider="jev",
+                model=self._settings.typesafe_model,
+                status="failed",
+                latency_ms=round((time.monotonic() - start) * 1000, 1),
+                wait_ms=round(waited * 1000, 1),
+                cost_usd=None,
+                cost_basis="unknown",
+            )
             self._breaker.record_failure()
             status = getattr(exc, "status", None)
             log.warning("jev_call_failed", error=type(exc).__name__, http_status=status)
@@ -141,6 +165,18 @@ class JevClient:
             cost_usd=input_tokens * self._settings.jev_cost_per_input_token_usd,
             latency_ms=round((time.monotonic() - start) * 1000, 1),
             waited_seconds=round(waited, 1),
+        )
+        record_call(
+            stage=stage,
+            provider="jev",
+            model=result.model,
+            status="success",
+            latency_ms=result.latency_ms,
+            wait_ms=round(waited * 1000, 1),
+            input_tokens=result.input_tokens,
+            output_tokens=None,
+            cost_usd=str(result.cost_usd),
+            cost_basis="estimated",
         )
         log.info(
             "jev_call",

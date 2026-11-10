@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, UploadFile, status
 from fastapi.responses import PlainTextResponse
@@ -67,6 +67,9 @@ class VendorUpdateIn(VendorFields):
 
 
 class POLineOut(BaseModel):
+    tax_rate_percent: Decimal | None = None
+    net_amount: Decimal
+    finance_details: dict[str, Any] | None = None
     id: uuid.UUID
     line_no: int
     description: str
@@ -78,6 +81,9 @@ class POLineOut(BaseModel):
 
 
 class POOut(BaseModel):
+    subtotal_amount: Decimal
+    tax_amount: Decimal | None = None
+    grand_total: Decimal | None = None
     id: uuid.UUID
     po_number: str
     vendor_id: uuid.UUID
@@ -121,10 +127,16 @@ def po_out(summary: POSummary) -> POOut:
         status=po.status,
         issued_date=po.issued_date,
         total_amount=po.total_amount,
+        subtotal_amount=po.total_amount,
+        tax_amount=po.tax_amount,
+        grand_total=po.grand_total,
         received_value=summary.received_value,
         invoiced_value=summary.invoiced_value,
         lines=[
             POLineOut(
+                finance_details=item.line.finance_details,
+                net_amount=item.line.net_amount,
+                tax_rate_percent=item.line.tax_rate_percent,
                 id=item.line.id,
                 line_no=item.line.line_no,
                 description=item.line.description,

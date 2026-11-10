@@ -12,7 +12,7 @@ Conventions:
 
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -81,6 +81,35 @@ class TimestampMixin:
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class PurchaseCorrection(TimestampMixin, Base):
+    """Explicit, scoped reviewer knowledge; never learned from invoice approval."""
+
+    __tablename__ = "purchase_corrections"
+    __table_args__ = (
+        Index("ix_correction_scope", "vendor_id", "description_key", "status"),
+        CheckConstraint("status IN ('pending', 'active', 'withdrawn')", name="correction_status"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    vendor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vendors.id"))
+    source_invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("invoices.id"))
+    source_line_no: Mapped[int] = mapped_column()
+    description: Mapped[str] = mapped_column(Text)
+    description_key: Mapped[str] = mapped_column(String(64))
+    buyer_key: Mapped[str] = mapped_column(String(64))
+    currency: Mapped[str] = mapped_column(String(3))
+    field: Mapped[str] = mapped_column(String(30))
+    value: Mapped[str] = mapped_column(String(100))
+    evidence: Mapped[str] = mapped_column(Text)
+    source_section: Mapped[str | None] = mapped_column(String(100))
+    source_version: Mapped[str | None] = mapped_column(String(50))
+    valid_from: Mapped[date] = mapped_column(Date)
+    valid_until: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    created_by: Mapped[str] = mapped_column(String(100))
+    validated_by: Mapped[str | None] = mapped_column(String(100))
+    validation_reason: Mapped[str | None] = mapped_column(Text)
 
 
 # ── Master data ───────────────────────────────────────────────────────────────
@@ -164,6 +193,27 @@ class PurchaseOrder(TimestampMixin, Base):
     )
     receipts: Mapped[list["GoodsReceipt"]] = relationship(back_populates="purchase_order")
 
+    @property
+    def tax_amount(self) -> Decimal | None:
+        groups: dict[Decimal, Decimal] = {}
+        for line in self.lines:
+            rate = line.tax_rate_percent
+            if rate is None:
+                return None
+            groups[rate] = groups.get(rate, Decimal(0)) + line.net_amount
+        return sum(
+            (
+                (net * rate / 100).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+                for rate, net in groups.items()
+            ),
+            Decimal(0),
+        )
+
+    @property
+    def grand_total(self) -> Decimal | None:
+        tax = self.tax_amount
+        return self.total_amount + tax if tax is not None else None
+
 
 class PurchaseOrderLine(Base):
     __tablename__ = "purchase_order_lines"
@@ -183,7 +233,18 @@ class PurchaseOrderLine(Base):
     unit_price: Mapped[Decimal] = mapped_column(UnitPrice)
     gl_account_code: Mapped[str | None] = mapped_column(ForeignKey("gl_accounts.code"))
 
+    finance_details: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
+
     purchase_order: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+
+    @property
+    def net_amount(self) -> Decimal:
+        return (self.quantity * self.unit_price).quantize(Decimal(".01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def tax_rate_percent(self) -> Decimal | None:
+        value = (self.finance_details or {}).get("tax_rate_percent")
+        return Decimal(str(value)) if value is not None else None
 
 
 class GoodsReceipt(TimestampMixin, Base):
@@ -374,6 +435,8 @@ class InvoiceLine(Base):
         ForeignKey("purchase_order_lines.id")
     )
 
+    finance_classification: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
+
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
 
 
@@ -448,6 +511,7 @@ class Decision(Base):
     )
     action: Mapped[DecisionAction] = mapped_column(enum_column(DecisionAction))
     band: Mapped[ActionBand] = mapped_column(enum_column(ActionBand))
+    exception_routing: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONType)
     reason_codes: Mapped[list[str]] = mapped_column(JSONType, default=list)
     findings: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list)
     rationale: Mapped[str] = mapped_column(Text)
@@ -585,3 +649,27 @@ class AuditEvent(Base):
     entity_id: Mapped[str] = mapped_column(String(64))
     request_id: Mapped[str | None] = mapped_column(String(64))
     data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+
+
+class AccountingRule(Base):
+    """An explicitly approved entity/account/cost-center/tax combination."""
+
+    __tablename__ = "accounting_rules"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType)
+    is_active: Mapped[bool] = mapped_column(default=True)
+
+
+class InvoiceException(TimestampMixin, Base):
+    """Current exception workflow; all transitions also have immutable audit events."""
+
+    __tablename__ = "invoice_exceptions"
+    __table_args__ = (UniqueConstraint("invoice_id", "code"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("invoices.id"), index=True)
+    code: Mapped[str] = mapped_column(String(64))
+    owner: Mapped[str] = mapped_column(String(100))
+    assigned_to: Mapped[str | None] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(30), default="open")
+    resolution_reason: Mapped[str | None] = mapped_column(Text)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)

@@ -7,6 +7,7 @@ without a PO and defaults to 6100 (Legal Fees).
 
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -65,8 +66,31 @@ def test_po_lines_keep_the_po_account_without_asking_jev(
 
     page = client.get(f"/invoices/{body['id']}").text
     assert server.coding_requests == []  # nothing left for Jev to code
+    assert body["status"] == "approved"
     assert "from the PO" in page
     assert 'value="6000" selected' in page
+
+
+@pytest.mark.parametrize("confidence", [0.41, 0.60, 0.93])
+def test_non_po_spend_and_suggested_coding_require_human_review(
+    app: FastAPI, client: TestClient, seeded_settings: Settings, confidence: float
+) -> None:
+    body, _ = _process(
+        app,
+        client,
+        seeded_settings,
+        _meridian(),
+        coding={
+            "line_1": ("6100", confidence),
+            "route_0": ("delivery", 0.99),
+            "route_1": ("purchasing", 0.99),
+        },
+    )
+    assert body["status"] == "pending_review"
+    assert {"NON_PO_APPROVAL_REQUIRED", "GL_CODING_REVIEW"} <= set(body["decision"]["reason_codes"])
+    routes = {r["code"]: r for r in body["decision"]["exception_routing"]}
+    assert routes["NON_PO_APPROVAL_REQUIRED"]["owner"] == "Budget owner"
+    assert routes["GL_CODING_REVIEW"]["owner"] == "Finance"
 
 
 def test_confident_jev_choice_is_used(
@@ -205,3 +229,212 @@ def test_chart_of_accounts_shows_approved_spend(
     row = page.split('href="/accounts/6000"', 1)[1].split("</tr>", 1)[0]
 
     assert "Office Supplies" in row and "1,074.00" in row
+
+
+def test_finance_classification_requires_evidence_and_records_requirements(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    body, _ = _process(
+        app,
+        client,
+        seeded_settings,
+        _meridian(),
+        coding={
+            "finance_1_purchase_category": ("professional_service", 0.95),
+            "finance_1_service_dates_required": ("yes", 0.95),
+            "finance_1_asset_details_required": ("no", 0.95),
+            "finance_1_purchase_category_evidence": ("line", 0.95),
+            "finance_1_purchase_category_support": ("supported", 0.95),
+            "finance_1_service_dates_required_evidence": ("line", 0.95),
+            "finance_1_service_dates_required_support": ("supported", 0.95),
+            "finance_1_asset_details_required_evidence": ("line", 0.95),
+            "finance_1_asset_details_required_support": ("supported", 0.95),
+        },
+    )
+    page = client.get(f"/invoices/{body['id']}").text
+    assert "FINANCE_CLASSIFICATION_REVIEW" in body["decision"]["reason_codes"]
+    assert (
+        body["lines"][0]["finance_classification"]["fields"]["purchase_category"]["value"]
+        == "professional_service"
+    )
+    assert "professional_service" in page
+    assert "Missing service start" in page and "Missing service end" in page
+    assert "Jev suggestion" in page and "Evidence: Commercial contract review" in page
+    assert "Insufficient evidence" in page
+
+
+def test_finance_does_not_accept_confident_choice_without_evidence(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    body, _ = _process(
+        app,
+        client,
+        seeded_settings,
+        _meridian(),
+        coding={
+            "finance_1_purchase_category": ("goods", 0.99),
+            "finance_1_purchase_category_evidence": ("unknown", 0.99),
+        },
+    )
+    page = client.get(f"/invoices/{body['id']}").text
+    assert "Insufficient evidence for purchase category" in page
+    category = body["lines"][0]["finance_classification"]["fields"]["purchase_category"]
+    assert category["suggested_value"] == "goods"
+    assert category["evidence_choice"] == "unknown"
+    assert category["evidence_confidence"] == 0.99
+    assert category["rejection_reason"] == "no_supporting_evidence"
+    assert "Unconfirmed suggestion: goods" in page
+
+
+def test_category_evidence_does_not_depend_on_accounting_treatment_evidence(
+    app: FastAPI,
+    client: TestClient,
+    seeded_settings: Settings,
+) -> None:
+    body, _ = _process(
+        app,
+        client,
+        seeded_settings,
+        _meridian(),
+        coding={
+            "finance_1_purchase_category": ("professional_service", 0.95),
+            "finance_1_purchase_category_evidence": ("line", 0.95),
+            "finance_1_purchase_category_support": ("supported", 0.95),
+            "finance_1_accounting_treatment": ("expense", 0.95),
+            "finance_1_accounting_treatment_evidence": ("unknown", 0.99),
+        },
+    )
+    fields = body["lines"][0]["finance_classification"]["fields"]
+    assert fields["purchase_category"]["value"] == "professional_service"
+    assert fields["accounting_treatment"]["value"] is None
+    assert fields["accounting_treatment"]["rejection_reason"] == "no_supporting_evidence"
+
+
+def test_duplicate_evidence_sources_are_offered_once() -> None:
+    from jev_invoice.coding.classification import evidence_choices
+
+    choices = evidence_choices("Legal services", " Legal  services ", "LEGAL SERVICES")
+    assert choices == {
+        "unknown": "No quotation supports this specific field",
+        "line": "Legal services",
+    }
+
+
+def test_evidence_selection_confidence_is_separate_from_support(
+    app: FastAPI,
+    client: TestClient,
+    seeded_settings: Settings,
+) -> None:
+    body, _ = _process(
+        app,
+        client,
+        seeded_settings,
+        _meridian(),
+        coding={
+            "finance_1_purchase_category": ("professional_service", 0.99),
+            "finance_1_purchase_category_evidence": ("line", 0.36),
+            "finance_1_purchase_category_support": ("supported", 0.95),
+        },
+    )
+    field = body["lines"][0]["finance_classification"]["fields"]["purchase_category"]
+    assert field["value"] == "professional_service"
+    assert field["evidence_confidence"] == 0.36
+    assert field["evidence_support_confidence"] == 0.95
+
+
+def test_high_confidence_but_unsupported_recommendation_is_withheld(
+    app: FastAPI,
+    client: TestClient,
+    seeded_settings: Settings,
+) -> None:
+    body, _ = _process(
+        app,
+        client,
+        seeded_settings,
+        _meridian(),
+        coding={
+            "finance_1_purchase_category": ("goods", 0.99),
+            "finance_1_purchase_category_evidence": ("line", 0.99),
+            "finance_1_purchase_category_support": ("unsupported", 0.95),
+        },
+    )
+    field = body["lines"][0]["finance_classification"]["fields"]["purchase_category"]
+    assert field["value"] is None
+    assert field["rejection_reason"] == "unsupported_recommendation"
+
+
+def test_explicit_department_candidate_is_used_without_inventing_a_project(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    body, server = _process(
+        app,
+        client,
+        seeded_settings,
+        _meridian(
+            line_items=[{**LEGAL_LINE, "description": "Legal review; Department: Operations"}]
+        ),
+        coding={
+            "finance_1_department": ("candidate_0", 0.97),
+            "finance_1_department_evidence": ("line", 0.97),
+            "finance_1_department_support": ("supported", 0.97),
+        },
+    )
+    page = client.get(f"/invoices/{body['id']}").text
+    assert "Operations" in page
+    requests = [r for r in server.requests if "finance_1_project" in r.get("questions", {})]
+    assert set(requests[0]["questions"]["finance_1_project"]["criteria"]) == {"unknown"}
+
+
+def test_po_finance_values_are_inherited_and_not_reclassified(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    vendors = client.get("/purchase-orders").text
+    import re
+
+    vendor_id = re.search(r'<option value="([0-9a-f-]+)"[^>]*>Acme Supplies Inc', vendors)
+    assert vendor_id is not None
+    created = client.post(
+        "/purchase-orders",
+        data={
+            "po_number": "PO-FINANCE",
+            "vendor_id": vendor_id.group(1),
+            "person": "Sam",
+            "issued_date": "2026-09-01",
+            "item_description": "Printer paper A4",
+            "item_quantity": "10",
+            "item_price": "107.40",
+            "item_account": "6000",
+            "item_purchase_category": "goods",
+            "item_department": "Operations",
+            "item_project": "Office setup",
+            "item_service_dates_required": "false",
+            "item_asset_details_required": "false",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    body, server = _process(
+        app,
+        client,
+        seeded_settings,
+        acme_invoice_fields(
+            po_reference="PO-FINANCE",
+            line_items=[
+                {
+                    "description": "Printer paper A4",
+                    "quantity": 10,
+                    "unit_price": "107.40",
+                    "amount": "1074.00",
+                }
+            ],
+        ),
+        coding={"finance_1_conflict": ("conflict", 0.95)},
+    )
+    page = client.get(f"/invoices/{body['id']}").text
+    assert body["lines"][0]["finance_classification"]["fields"]["department"]["source"] == "po"
+    assert "FINANCE_CLASSIFICATION_REVIEW" in body["decision"]["reason_codes"]
+    assert "Office setup" in page and "Operations" in page and "From PO" in page
+    assert "Invoice may conflict with approved PO finance details" in page
+    for request in server.requests:
+        assert "finance_1_purchase_category" not in request.get("questions", {})
+    assert server.coding_requests == []

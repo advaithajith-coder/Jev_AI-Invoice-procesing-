@@ -15,7 +15,7 @@ from redis.asyncio import Redis
 from jev_invoice import __version__
 from jev_invoice.api.dependencies import build_pipeline
 from jev_invoice.api.middleware import RequestContextMiddleware
-from jev_invoice.api.routes import exports, health, invoices, masterdata, review
+from jev_invoice.api.routes import evaluations, exports, health, invoices, masterdata, review
 from jev_invoice.config import Settings, get_settings
 from jev_invoice.core.errors import register_error_handlers
 from jev_invoice.core.logging import configure_logging
@@ -155,10 +155,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_error_handlers(app)
     app.include_router(health.router)
     app.include_router(invoices.router)
+    app.include_router(evaluations.router)
     app.include_router(review.router)
     app.include_router(masterdata.router)
     app.include_router(exports.router)
+    from jev_invoice.web.corrections import router as corrections_router
+
     app.include_router(web.router)
+    app.include_router(corrections_router)
     app.include_router(web_admin.router)
     app.include_router(web_payables.router)
     app.include_router(web_receiving.router)

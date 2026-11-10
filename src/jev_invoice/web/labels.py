@@ -23,6 +23,22 @@ class Reason:
 R = ReasonCode
 
 REASONS: dict[ReasonCode, Reason] = {
+    R.INCOMPLETE_DOCUMENT: Reason(
+        "Document reading is incomplete",
+        "Check the unread or omitted pages. Reject this copy and upload a complete readable "
+        "document, or increase the supported limit before uploading it again.",
+        "human",
+    ),
+    R.ACCOUNTING_PERIOD_REVIEW: Reason(
+        "Accounting period needs review",
+        "Confirm the service or delivery period and select an open posting period with a reason.",
+        "human",
+    ),
+    R.ACCOUNTING_TREATMENT_REVIEW: Reason(
+        "Accounting treatment needs review",
+        "Finance must confirm expense, prepayment or asset treatment against company policy.",
+        "human",
+    ),
     R.BANK_ACCOUNT_MISMATCH: Reason(
         "Bank account differs from our records",
         "The invoice asks for payment to an account that is not the one on file. Call the "
@@ -58,6 +74,27 @@ REASONS: dict[ReasonCode, Reason] = {
     R.JEV_UNAVAILABLE: Reason(
         "Decision model did not answer",
         "Jev timed out, hit its rate limit, or returned an error, so a person decides.",
+        "human",
+    ),
+    R.FINANCE_CLASSIFICATION_REVIEW: Reason(
+        "Accounting details need review",
+        "Required service or asset details are missing, or the invoice conflicts with its PO.",
+        "human",
+    ),
+    R.NON_PO_APPROVAL_REQUIRED: Reason(
+        "Non-PO spend needs approval",
+        "A Budget owner must confirm the business purpose, even for vendors that need no PO.",
+        "confirm",
+    ),
+    R.GL_CODING_REVIEW: Reason(
+        "GL coding needs Finance confirmation",
+        "Automatic approval requires a matched PO account or validated correction on every line. "
+        "Confirm JEV suggestions and vendor defaults, and replace missing or suspense accounts.",
+        "human",
+    ),
+    R.TAX_REVIEW_REQUIRED: Reason(
+        "Massachusetts tax needs review",
+        "Check the applicable tax rate, taxable amount and exemptions with Finance.",
         "human",
     ),
     R.JEV_UNCERTAIN: Reason(
@@ -238,6 +275,17 @@ STATUSES: dict[InvoiceStatus, tuple[str, Tone]] = {
 }
 
 AUDIT_ACTIONS: dict[str, str] = {
+    "correction.proposed": "Recurring purchase correction proposed",
+    "correction.validated": "Recurring purchase correction validated",
+    "correction.withdrawn": "Recurring purchase correction withdrawn",
+    "correction.reused": "Validated purchase correction reused",
+    "invoice.accounting_updated": "Accounting details updated",
+    "accounting.policy_updated": "Accounting policy updated",
+    "exception.opened": "Exception opened",
+    "exception.updated": "Exception updated",
+    "exception.reopened": "Exception remains open",
+    "exception.cleared": "Exception cleared by controls",
+    "exception.disposition": "Exception decided by reviewer",
     "settings.approval_limit_changed": "Approval limit changed",
     "invoice.accounts_changed": "Accounts changed",
     "gl_account.created": "Account added",

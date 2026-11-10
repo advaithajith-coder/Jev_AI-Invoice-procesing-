@@ -41,7 +41,7 @@ def _task_id(page: str) -> str:
 
 
 def test_inbox_shows_upload_form_and_empty_state(client: TestClient) -> None:
-    page = client.get("/").text
+    page = client.get("/inbox").text
 
     assert 'action="/upload"' in page
     assert "No invoices yet" in page
@@ -51,8 +51,9 @@ def test_screens_are_named_after_the_company(client: TestClient) -> None:
     page = client.get("/review").text
 
     assert "<title>Review queue | Northwind Analytics AP</title>" in page
-    assert '<span class="wordmark__name">Northwind Analytics</span>' in page
-    assert "Invoices must be billed to Northwind Analytics Inc." in client.get("/").text
+    assert '<span class="wordmark__name">Parser.AI</span>' in page
+    assert "Northwind Analytics" in page
+    assert "Invoices must be billed to Northwind Analytics Inc." in client.get("/inbox").text
 
 
 def test_upload_redirects_to_invoice_page_with_plain_language_reasons(
@@ -67,7 +68,9 @@ def test_upload_redirects_to_invoice_page_with_plain_language_reasons(
 
     assert "Acme Supplies Inc" in page
     assert "Invoice processed." in page
-    assert "Needs budget approval" in page
+    assert "Non-PO spend needs approval" in page
+    assert "GL coding needs Finance confirmation" in page
+    assert "Budget owner" in page
     assert "No purchase order" in page  # reason title, not the raw code
     assert "NO_PURCHASE_ORDER" not in page
     assert "Jev judgment" in page
@@ -268,8 +271,8 @@ def test_inbox_filters_by_status(
     install_fakes(app, seeded_settings, acme_invoice_fields(), jev=[wire_answers()])
     _upload(client)
 
-    assert "Acme Supplies Inc" in client.get("/?status=approved").text
-    assert "No invoices with this status" in client.get("/?status=rejected").text
+    assert "Acme Supplies Inc" in client.get("/inbox?status=approved").text
+    assert "No invoices with this status" in client.get("/inbox?status=rejected").text
 
 
 def test_photo_page_shows_image_and_transcription(

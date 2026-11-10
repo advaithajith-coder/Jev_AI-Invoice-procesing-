@@ -1,0 +1,17 @@
+SUMMIT OFFICE FURNITURE CO
+77 Granite Ave, Quincy MA 02169
+EIN 04-3318842
+
+INVOICE SOF-10442
+Invoice date: {{date-2}}
+Terms: net 30
+Bill to: Northwind Analytics Inc
+
+Item                                              Qty   Unit price      Amount
+Standing desk frame, dual motor                     4       425.00    1,700.00
+
+Subtotal                                                             1,700.00
+Massachusetts sales tax 6.25%                                          106.25
+Total due (USD)                                                      1,806.25
+
+Remit to: Routing 211370545 Account 7781203394

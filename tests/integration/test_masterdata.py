@@ -388,6 +388,16 @@ def test_new_vendor_po_and_delivery_let_invoice_auto_approve(
             "subtotal": 600,
             "tax": 0,
             "total": 600,
+            # Lines that match the PO's, so each one is matched and coded from the PO.
+            "line_items": [
+                {
+                    "description": "Office cleaning, October",
+                    "quantity": 1,
+                    "unit_price": 450,
+                    "amount": 450,
+                },
+                {"description": "Window cleaning", "quantity": 2, "unit_price": 75, "amount": 150},
+            ],
         },
         jev=[wire_answers()],
     )

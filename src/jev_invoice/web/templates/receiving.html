@@ -1,14 +1,18 @@
 {% extends "base.html" %}
 {% from "_history.html" import person_field %}
-{% block title %}Receiving | {{ company_short }} AP{% endblock %}
+{% block title %}Delivery Management | {{ company_short }} AP{% endblock %}
 {% block content %}
+<div class="delivery-workspace">
 <div class="section-head">
-  <h1>Receiving</h1>
+  <h1>Delivery Management</h1>
   <a class="button" href="/purchase-orders">Purchase orders</a>
 </div>
-<p class="lede">Record what arrived against each order. Invoices are paid only for what was
-  ordered <em>and</em> received (the three-way match), so an invoice waiting for goods is
-  checked again as soon as you record the delivery.</p>
+<p class="lede">Track deliveries, record goods received and resolve supplier issues.</p>
+<nav class="delivery-sections" aria-label="Delivery sections">
+  <a href="#due-title">Waiting for delivery <span>{{ orders | length }}</span></a>
+  <a href="#done-title">Recent deliveries <span>{{ deliveries | length }}</span></a>
+  <a href="#delivery-issues">Delivery issues <span>{{ issues | length }}</span></a>
+</nav>
 
 {% if notice %}
 <div class="banner banner--ok" role="status">
@@ -24,13 +28,16 @@
 
 <section aria-labelledby="due-title">
   <h2 id="due-title">Waiting for delivery <span class="muted">{{ orders | length }}</span></h2>
+  <div class="delivery-orders">
   {% for s, waiting in orders %}
   {% set po = s.po %}
   {% set label, tone = PO_STATUSES.get(po.status, (po.status, "muted")) %}
   {% set due = s.lines | selectattr("outstanding") | list %}
-  <form class="receive" method="post" action="/receiving/{{ po.id }}" aria-labelledby="po-{{ po.id }}">
+  <details class="receive receive--order" {% if error_po == po.id %}open{% endif %}>
+    <summary id="po-{{ po.id }}"><span class="delivery-order__identity"><strong>{{ po.vendor.name }}</strong><span>{{ po.po_number }}</span></span><span class="delivery-card__arrow" aria-hidden="true">⌄</span></summary>
+  <form method="post" action="/receiving/{{ po.id }}" aria-labelledby="po-{{ po.id }}">
     <div class="receive__head">
-      <h3 id="po-{{ po.id }}"><a href="/purchase-orders/{{ po.id }}">{{ po.po_number }}</a> <span class="receive__vendor">{{ po.vendor.name }}</span></h3>
+      <p><a href="/purchase-orders/{{ po.id }}">View purchase order</a></p>
       <p class="receive__meta"><span class="tag tag--{{ tone }}">{{ label }}</span>
         ordered {{ po.issued_date | date }} · {{ due | length }} of {{ s.lines | length }} line{{ "s" if s.lines | length != 1 }} still to come</p>
     </div>
@@ -70,31 +77,97 @@
       <button class="button button--primary" type="submit">Record delivery</button>
     </div>
   </form>
+  </details>
   {% else %}
   <div class="empty"><p>Nothing is waiting for delivery. <a href="/purchase-orders">Create a purchase order</a> to order something.</p></div>
   {% endfor %}
+  </div>
 </section>
+
 
 <section aria-labelledby="done-title">
   <h2 id="done-title">Recent deliveries</h2>
   {% if deliveries %}
-  <div class="table-wrap">
-    <table class="ledger ledger--compact">
-      <thead><tr><th scope="col">Delivered</th><th scope="col">Receipt</th><th scope="col">Order</th><th scope="col">Vendor</th><th scope="col">Items</th></tr></thead>
-      <tbody>
+  <div class="delivery-history">
         {% for r in deliveries %}
         {% set names = {} %}{% for line in r.purchase_order.lines %}{% set _ = names.update({line.id: line.description}) %}{% endfor %}
-        <tr>
-          <td>{{ r.received_date | date }}</td>
-          <td class="typed">{{ r.receipt_number }}</td>
-          <td><a href="/purchase-orders/{{ r.purchase_order_id }}">{{ r.purchase_order.po_number }}</a></td>
-          <td>{{ r.purchase_order.vendor.name }}</td>
-          <td>{% for line in r.lines %}{{ line.quantity_received | qty }} × {{ names.get(line.purchase_order_line_id, "item") }}{{ "; " if not loop.last }}{% endfor %}</td>
-        </tr>
+        <details class="delivery-card">
+          <summary class="delivery-card__summary">
+            <span class="delivery-card__main"><strong>{{ r.purchase_order.vendor.name }}</strong><span class="muted">{{ r.purchase_order.po_number }}</span></span>
+            <span class="delivery-card__meta"><span>{{ r.received_date | date }}</span><span class="typed muted">{{ r.receipt_number }}</span></span>
+            <span class="delivery-card__count">{{ r.lines | length }} item{{ "s" if r.lines | length != 1 }} <span aria-hidden="true" class="delivery-card__arrow">⌄</span></span>
+          </summary>
+          <div class="delivery-card__body">
+            <div class="table-wrap"><table class="ledger ledger--compact">
+              <thead><tr><th scope="col">Item received</th><th scope="col" class="num">Quantity</th></tr></thead>
+              <tbody>{% for line in r.lines %}<tr><td>{{ names.get(line.purchase_order_line_id, "item") }}</td><td class="num">{{ line.quantity_received | qty }}</td></tr>{% endfor %}</tbody>
+            </table></div>
+            <p class="small"><a href="/purchase-orders/{{ r.purchase_order_id }}">View purchase order</a></p>
+          </div>
+        </details>
         {% endfor %}
-      </tbody>
-    </table>
   </div>
   {% else %}<p class="muted">No deliveries recorded yet.</p>{% endif %}
 </section>
+<section id="delivery-issues" aria-labelledby="issues-title">
+  <h2 id="issues-title">Delivery issues &amp; supplier credits</h2>
+  <p>Report missing, damaged, wrong or returned goods. Request a credit note from the supplier, then apply it to the linked invoice.</p>
+  {% if issue_notice %}<p class="banner banner--ok" role="status">{{ issue_notice }}</p>{% endif %}
+  <details>
+    <summary>Report a delivery issue</summary>
+    {% for s in issue_orders %}
+    <details class="receive">
+      <summary>{{ s.po.po_number }} · {{ s.po.vendor.name }}</summary>
+      <form method="post" action="/receiving/issues/report">
+        <input type="hidden" name="po_id" value="{{ s.po.id }}">
+        <div class="field"><label for="issue-item-{{ s.po.id }}">Affected item</label>
+          <select id="issue-item-{{ s.po.id }}" name="line_id" required>
+            {% for item in s.lines %}<option value="{{ item.line.id }}">{{ item.line.description }} · {{ item.received | qty }} received, {{ item.outstanding | qty }} outstanding</option>{% endfor %}
+          </select></div>
+        <div class="field"><label for="issue-type-{{ s.po.id }}">Issue</label><select id="issue-type-{{ s.po.id }}" name="category" required>
+          {% for value, label in issue_reasons.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select></div>
+        <div class="field"><label for="issue-qty-{{ s.po.id }}">Affected quantity</label><input id="issue-qty-{{ s.po.id }}" name="quantity" type="number" min="0.001" step="any" required></div>
+        <div class="field"><label for="issue-reason-{{ s.po.id }}">Details for the supplier</label><textarea id="issue-reason-{{ s.po.id }}" name="reason" maxlength="2000" required></textarea></div>
+        {{ person_field(person, "issue-person-" ~ s.po.id) }}
+        <button class="button button--primary" type="submit">Record issue</button>
+      </form>
+    </details>
+    {% else %}<p>No goods orders are available.</p>{% endfor %}
+  </details>
+  {% for issue in issues %}
+  <article class="receive">
+    <h3><a href="/purchase-orders/{{ issue.po_id }}">{{ issue.po_number }}</a> · {{ issue.vendor }}</h3>
+    <p><b>{{ issue_reasons[issue.category] }}</b> · {{ issue.quantity }} × {{ issue.description }}</p>
+    <p>{{ issue.reason }}</p>
+    <p>Estimated credit before tax: {{ issue.estimated_credit | money(issue.currency) }}.</p>
+    {% if issue.status == 'credit_applied' %}
+      <p class="tag tag--ok">Credit applied: {{ issue.credit_number }} · {{ issue.credit_amount | money(issue.currency) }}</p>
+      <p><a href="/invoices/{{ issue.invoice_id }}">Review invoice {{ issue.invoice_number }}</a>. Any dispute must be released separately after review.</p>
+    {% elif issue.invoices %}
+      <p>Awaiting supplier credit{% if issue.invoice_id %} · <a href="/invoices/{{ issue.invoice_id }}">{{ issue.invoice_number }}</a>{% endif %}.</p>
+      <details><summary>Put invoice on dispute</summary>
+        <form method="post" action="/receiving/issues/{{ issue.id }}/dispute">
+          <div class="field"><label for="dispute-invoice-{{ issue.id }}">Invoice</label><select id="dispute-invoice-{{ issue.id }}" name="invoice_id" required>{% for i in issue.invoices %}<option value="{{ i.id }}">{{ i.invoice_number or i.original_filename }}</option>{% endfor %}</select></div>
+          {{ person_field(person, "dispute-person-" ~ issue.id) }}
+          <button class="button" type="submit">Stop payment and dispute</button>
+        </form>
+      </details>
+      <details><summary>Apply supplier credit</summary>
+        <form method="post" action="/receiving/issues/{{ issue.id }}/credit">
+          <div class="field"><label for="credit-invoice-{{ issue.id }}">Invoice</label><select id="credit-invoice-{{ issue.id }}" name="invoice_id" required>{% for i in issue.invoices %}<option value="{{ i.id }}">{{ i.invoice_number or i.original_filename }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="credit-document-{{ issue.id }}">Uploaded supplier credit note</label><select id="credit-document-{{ issue.id }}" name="credit_note_id"><option value="">Enter supplier credit manually below</option>{% for i in issue.credit_notes %}<option value="{{ i.id }}">{{ i.invoice_number or i.original_filename }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="credit-number-{{ issue.id }}">Supplier credit number (manual entry)</label><input id="credit-number-{{ issue.id }}" name="credit_number" maxlength="100"></div>
+          <div class="field"><label for="credit-amount-{{ issue.id }}">Credit amount (manual entry)</label><input id="credit-amount-{{ issue.id }}" name="credit_amount" type="number" min="0.01" step="0.01"></div>
+          {{ person_field(person, "credit-person-" ~ issue.id) }}
+          <p>Apply only an actual supplier credit. This reduces the invoice balance; it does not release a hold or record a delivery.</p>
+          <button class="button button--primary" type="submit">Apply supplier credit</button>
+        </form>
+      </details>
+    {% else %}<p>Awaiting supplier credit. Process and link an invoice to this order before disputing it or applying the credit.</p>{% endif %}
+  </article>
+  {% else %}<p class="muted">No delivery issues recorded.</p>{% endfor %}
+</section>
+
+</div>
 {% endblock %}

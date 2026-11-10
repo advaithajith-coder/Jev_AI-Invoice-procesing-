@@ -126,8 +126,17 @@ async def test_amount_above_po_total(session: AsyncSession, settings: Settings) 
 
 
 async def test_amount_within_tolerance(session: AsyncSession, settings: Settings) -> None:
+    # The tolerance is 2% or USD 5, whichever is smaller: on 2,323.50 that is USD 5.
+    result = await _match(session, settings, subtotal="2328.00", total="2328.00", line_items=[])
+    assert _codes(result) == []
+
+
+async def test_two_percent_over_is_beyond_the_five_dollar_cap(
+    session: AsyncSession, settings: Settings
+) -> None:
+    # 2,323.50 x 1.02 = 2,369.97 is within 2%, but 45.50 over is more than USD 5.
     result = await _match(session, settings, subtotal="2369.00", total="2369.00", line_items=[])
-    assert _codes(result) == []  # 2,323.50 x 1.02 = 2,369.97
+    assert R.PO_AMOUNT_EXCEEDED in _codes(result)
 
 
 async def test_goods_not_received(session: AsyncSession, settings: Settings) -> None:

@@ -1,0 +1,18 @@
+MERIDIAN LEGAL LLP
+1 Liberty Plaza, New York NY 10006
+Tax ID 13-5551239
+
+INVOICE ML-2026-0527
+Invoice date: {{date-2}}
+Due date: {{date+12}}
+Client: Northwind Analytics Inc
+
+Description                                       Hours       Rate      Amount
+Commercial lease review                             6.0     275.00    1,650.00
+Board minutes and resolutions                       2.0     275.00      550.00
+
+Subtotal                                                             2,200.00
+Sales tax (not taxable)                                                   0.00
+Total due (USD)                                                      2,250.00
+
+Remit to: Routing 026009593 Account 1555555555

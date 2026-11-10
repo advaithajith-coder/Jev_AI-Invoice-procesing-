@@ -1,0 +1,16 @@
+VORTEX TRADING LLC
+5 Commerce Park, Newark NJ 07102
+
+INVOICE VT-2026-077
+Invoice date: {{date-1}}
+Terms: net 7
+Bill to: Northwind Analytics Inc
+
+Item                                              Qty   Unit price      Amount
+Replacement HVAC filter, MERV 13, 20x25x4          20        22.50      450.00
+
+Subtotal                                                               450.00
+Massachusetts sales tax 6.25%                                           28.13
+Total due (USD)                                                         478.13
+
+Remit to: Routing 021202337 Account 6650091127

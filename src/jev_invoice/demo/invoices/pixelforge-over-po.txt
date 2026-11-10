@@ -1,0 +1,19 @@
+PIXELFORGE MARKETING LLC
+340 Congress Street, Boston MA 02210
+EIN 27-4448882
+
+INVOICE PF-2026-118
+Invoice date: {{date-3}}
+Due date: {{date+27}}
+Bill to: Northwind Analytics Inc
+Your PO: PO-1005
+
+Description                                                       Qty   Unit price      Amount
+Q4 product launch campaign: strategy, creative and paid social      1     7,500.00    7,500.00
+Additional paid social media spend, October                         1     1,250.00    1,250.00
+
+Subtotal                                                                             8,750.00
+Sales tax (not taxable)                                                   0.00
+Total due (USD)                                                                      8,750.00
+
+Remit to: Routing 011000138 Account 1530093459

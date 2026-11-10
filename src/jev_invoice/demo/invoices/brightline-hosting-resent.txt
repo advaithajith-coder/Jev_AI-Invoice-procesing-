@@ -11,8 +11,11 @@ Bill to: Northwind Analytics Inc
 Your PO: PO-1004
 
 Description                                      Qty   Unit price      Amount
-Managed cloud hosting, September 2026              1     3,200.00    3,200.00
+Managed cloud hosting service only, no software licence or access,
+September 2026                                     1     3,200.00    3,200.00
 
+Subtotal                                                             3,200.00
+Sales tax (not taxable)                                                   0.00
 Total due (USD)                                                      3,200.00
 
 Remit to: Routing 021000021 Account 4417 2209

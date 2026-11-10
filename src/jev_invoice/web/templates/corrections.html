@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Saved corrections · Parser.AI{% endblock %}
+{% block content %}
+<header class="page-head"><h1>Saved corrections</h1><p>Validated decisions for the same recurring purchase.</p></header>
+<p>Parser.AI also learns GL coding from earlier approved bills. When at least two matching bills have the same manually selected account and none disagree, Parser.AI prefills that account for Finance review. PO coding and validated corrections take priority.</p>
+<p>A correction starts pending. Validate its evidence and scope before it is reused. It matches the same vendor, buyer, currency and exact description; dates and numbers in the description remain part of the match. PO coding takes priority.</p>
+<p class="muted small">This demo records the validator’s name; it does not enforce Finance roles. Corrections supply individual fields, not invoice approvals. No model is retrained.</p>
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+{% if request.query_params.get('saved') %}<p role="status">Correction saved as pending. Validate it below to enable reuse.</p>{% endif %}
+{% for correction, vendor_name, buyer in rows %}
+<section class="review-evidence">
+  <h2>{{ vendor_name }} · {{ correction.description }}</h2>
+  <p><strong>{{ correction.field | replace('_',' ') | capitalize }}:</strong> {{ correction.value | replace('_',' ') }} <span class="tag">{{ 'Expired' if correction.status == 'active' and correction.valid_until < today else correction.status | capitalize }}</span></p>
+  <dl class="fields"><dt>Scope</dt><dd>{{ buyer }} · {{ correction.currency }} · Exact description above</dd><dt>Valid dates</dt><dd>{{ correction.valid_from }} to {{ correction.valid_until }}</dd><dt>Evidence / reason</dt><dd>{{ correction.evidence }}</dd><dt>Origin</dt><dd><a href="/invoices/{{ correction.source_invoice_id }}">Source invoice, line {{ correction.source_line_no }}</a> · Saved by {{ correction.created_by }}</dd>{% if correction.validated_by %}<dt>Last decision</dt><dd>{{ correction.validated_by }}: {{ correction.validation_reason }}</dd>{% endif %}</dl>
+  {% if correction.status != 'withdrawn' %}<form method="post" action="/corrections/{{ correction.id }}/{{ 'validate' if correction.status == 'pending' else 'withdraw' }}">
+    <div class="field-row"><div class="field"><label for="person-{{ correction.id }}">Your name</label><input id="person-{{ correction.id }}" name="person" required maxlength="100"></div><div class="field"><label for="reason-{{ correction.id }}">{{ 'Validation' if correction.status == 'pending' else 'Withdrawal' }} reason</label><input id="reason-{{ correction.id }}" name="reason" required maxlength="2000"></div></div>
+    <button class="button {{ 'button--primary' if correction.status == 'pending' else '' }}">{{ 'Validate for future matches' if correction.status == 'pending' else 'Withdraw correction' }}</button>
+  </form>{% endif %}
+</section>
+{% else %}<section class="review-evidence"><h2>No saved corrections</h2><p>Open an invoice and choose “Save a recurring purchase correction” to record a specific corrected value and its evidence.</p><a class="button" href="/review">Open review queue</a></section>{% endfor %}
+<p class="muted small">Showing the latest 200 corrections. Withdrawn or expired corrections cannot be reused. Tax corrections also stop applying when the rate policy changes. No earlier invoice or evaluation output is changed.</p>
+{% endblock %}

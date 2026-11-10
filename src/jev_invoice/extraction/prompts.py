@@ -4,7 +4,7 @@ Bump PROMPT_VERSION whenever the wording or the output keys change; every stored
 invoice records the version that produced it, so accuracy can be compared per version.
 """
 
-PROMPT_VERSION = "x5"  # x5: other details (x4: vendor tax ID; x3: description, paid/due, notes)
+PROMPT_VERSION = "x7"  # x7: logos and labelled purchase-order evidence
 
 SYSTEM_PROMPT = """\
 You read supplier invoices for an accounts payable team and return their fields as one JSON object.
@@ -22,6 +22,9 @@ order, follow the convention of the seller's country.
 - currency: ISO 4217 code such as USD, CAD, EUR, GBP. A plain $ means USD unless the document \
 marks another dollar (CA$, C$, A$, NZ$, HK$, S$). £ means GBP, € means EUR.
 - po_reference: the purchase order number quoted on the document.
+- po_reference_evidence: the exact printed PO label and reference, or null. Customer reference, \
+customer account, invoice number and sales order are NOT purchase orders. Without a printed \
+'PO', 'P.O.', 'Purchase order' or 'Purchase order number' label, use null for both PO fields.
 - bill_to_name: the name of the customer the invoice is addressed to (the "Bill to" party), \
 name only.
 - vendor_tax_id: the seller's own tax ID as printed (EIN, TIN, VAT or GST number), not the \
@@ -54,9 +57,27 @@ contract, project, ship date, tracking number or sales rep, each exactly as prin
 repeat anything already given in another key.
 
 Rules:
+- Decorative initials, logos and monograms beside the seller's heading are not part of \
+vendor_name. Use supplied header layout spacing to distinguish a separate logo from a name; \
+do not strip initials that actually belong to the business name.
 - Numbers are plain decimals without currency symbols or thousands separators, e.g. 1234.50.
 - Use null for any value that is not printed, and [] when there are no line items or notes.
 - Do not calculate or invent amounts that the document does not show; only convert formats.
+- For each line, quantity and unit_price must be explicitly printed for that line. An amount \
+alone is NOT a unit price. Never assume quantity 1, or derive unit_price from amount / quantity.
+- A service table headed Description and Amount has no quantity or unit-price columns. \
+For example, 'Advisory service 850.00' in that table must become \
+{"description":"Advisory service","quantity":null,"unit_price":null,"amount":850.00}.
+- A goods line with explicitly printed quantity and unit price must preserve those numbers, \
+even if it is the invoice's only line.
+- Preserve every line item's FULL description exactly as printed, joining wrapped continuation \
+text with spaces. Description text can continue on the next physical line AFTER the row's \
+quantity, price and amount. Attach that continuation to the same item until the next item, \
+table heading or totals section begins. Never summarize line_items descriptions.
+- Example table row: 'Courier shipment AB-1 -  2  40.00  80.00' followed by \
+'carrier transport after sale, actual cost' describes ONE item whose description is \
+'Courier shipment AB-1 - carrier transport after sale, actual cost'. Preserve qualifiers about \
+service scope, tax treatment and delivery terms. Do not treat repeated page headers as items.
 """
 
 

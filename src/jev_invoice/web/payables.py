@@ -5,14 +5,18 @@ The old dashboard and report addresses redirect here.
 import csv
 import io
 from collections.abc import Iterable
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import func, select
 
 from jev_invoice.api.dependencies import SessionDep
+from jev_invoice.db.models import Invoice
+from jev_invoice.domain.enums import InvoiceStatus
 from jev_invoice.export.formats import safe_text
-from jev_invoice.payables.overview import TABS, overview
+from jev_invoice.payables.overview import TABS, Item, Overview, overview
 from jev_invoice.web.routes import templates
 
 router = APIRouter(include_in_schema=False)
@@ -31,15 +35,52 @@ def _csv(filename: str, header: list[str], rows: Iterable[Iterable[Any]]) -> Res
     )
 
 
+def dashboard_summary(view: Overview) -> dict[str, Any]:
+    """Non-overlapping balance buckets; held amounts are never scheduled for payment."""
+
+    def amount(items: list[Item]) -> Decimal:
+        return sum((item.owed_base for item in items), Decimal("0.00"))
+
+    late, week, held = view.late, view.due_week, view.held
+    allocated = {item.invoice.id for item in late + week + held}
+    later = [item for item in view.items if item.invoice.id not in allocated]
+    total = amount(view.items)
+    buckets: list[dict[str, Any]] = [
+        {"label": "Overdue", "items": late, "tone": "late", "tab": "late"},
+        {"label": "Next 7 days", "items": week, "tone": "week", "tab": "week"},
+        {"label": "Later / unscheduled", "items": later, "tone": "later", "tab": "open"},
+        {"label": "On hold", "items": held, "tone": "held", "tab": "held"},
+    ]
+    for bucket in buckets:
+        value = amount(bucket.pop("items"))
+        bucket["amount"] = value
+        bucket["share"] = str((value / total * 100).quantize(Decimal(".01"))) if total else "0"
+    return {
+        "outstanding": total,
+        "overdue": amount(late),
+        "upcoming": sum((item.to_pay_base for item in week), Decimal("0.00")),
+        "held": amount(held),
+        "discounts": sum((item.discount_base for item in view.discounts), Decimal("0.00")),
+        "buckets": buckets,
+    }
+
+
 @router.get("/payables", response_class=HTMLResponse)
 async def payables_page(request: Request, session: SessionDep, tab: str = "open") -> HTMLResponse:
     tab = tab if tab in TABS else "open"
     view = await overview(session)
+    review_count = await session.scalar(
+        select(func.count())
+        .select_from(Invoice)
+        .where(Invoice.status == InvoiceStatus.PENDING_REVIEW)
+    )
     return templates.TemplateResponse(
         request,
         "payables.html",
         {
             "o": view,
+            "dashboard": dashboard_summary(view),
+            "review_count": review_count or 0,
             "tab": tab,
             "tabs": TABS,
             "counts": view.counts(),

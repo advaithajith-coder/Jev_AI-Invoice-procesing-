@@ -12,6 +12,7 @@ import structlog
 from jev_invoice.config import Settings
 from jev_invoice.core.errors import BudgetExceededError, ExtractionError
 from jev_invoice.core.resilience import CircuitBreaker, retry_async
+from jev_invoice.evaluation.telemetry import record_call
 from jev_invoice.extraction.providers import LLMProvider, LLMResponse, RateLimit
 from jev_invoice.ingest.parsing import PageImage
 
@@ -29,6 +30,7 @@ class LLMCall:
     output_tokens: int
     cost_usd: Decimal
     latency_ms: float
+    truncated: bool = False
 
 
 @dataclass
@@ -151,14 +153,31 @@ class LLMClient:
         self._breaker.before_call()
 
         start = time.monotonic()
+        attempts = 0
+
+        async def request() -> LLMResponse:
+            nonlocal attempts
+            attempts += 1
+            return await self._call(system, user, json_mode, images)
+
         try:
             response = await retry_async(
-                lambda: self._call(system, user, json_mode, images),
+                request,
                 attempts=self._settings.llm_max_attempts,
                 should_retry=self._is_retryable,
                 delay_hint=self._retry_after,
             )
         except Exception as exc:
+            record_call(
+                stage="vision" if images else "extraction",
+                provider=self._provider.name,
+                model=self._provider.model,
+                status="failed",
+                attempts=attempts,
+                latency_ms=round((time.monotonic() - start) * 1000, 1),
+                cost_usd=None,
+                cost_basis="unknown",
+            )
             self._breaker.record_failure()
             log.warning("llm_call_failed", provider=self._provider.name, error=type(exc).__name__)
             raise ExtractionError(
@@ -171,6 +190,18 @@ class LLMClient:
 
         cost = response.input_tokens * self._cost_in + response.output_tokens * self._cost_out
         self._spent_today += cost
+        record_call(
+            stage="vision" if images else "extraction",
+            provider=self._provider.name,
+            model=response.model,
+            status="success",
+            attempts=attempts,
+            latency_ms=round((time.monotonic() - start) * 1000, 1),
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            cost_usd=str(cost),
+            cost_basis="estimated",
+        )
         call = LLMCall(
             text=response.text,
             provider=self._provider.name,
@@ -179,6 +210,7 @@ class LLMClient:
             output_tokens=response.output_tokens,
             cost_usd=cost,
             latency_ms=round((time.monotonic() - start) * 1000, 1),
+            truncated=response.truncated,
         )
         log.info(
             "llm_call",

@@ -1,0 +1,20 @@
+ACME SUPPLIES INC
+410 Market St, Denver CO 80202
+EIN 84-1234567
+
+INVOICE AS-31O10
+Date: {{date-0}}
+Terms: 2% 10, net 30
+Bill to: Northwind Analytics Inc, Accounts Payable
+Customer PO: PO-1003
+
+Item                                              Qty   Unit price      Amount
+Letter copier paper, 20 lb, case of 10 reams       20        24.99      499.80
+Toner cartridge, black, high yield                  6        89.50      537.00
+
+Subtotal                                                             1,036.80
+Massachusetts sales tax 6.25%                                           64.80
+Total due                                                           $1,101.60
+
+Take 2% off if paid within 10 days of the invoice date.
+Remit to: Routing 021000021 Account 4417926819

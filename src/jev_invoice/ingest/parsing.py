@@ -55,6 +55,7 @@ class UnreadableDocumentError(AppError):
 class PageImage:
     data: bytes
     mime_type: str
+    page_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,17 @@ class ParsedDocument:
     page_images: tuple[PageImage, ...] = field(default=(), repr=False)
     sender_email: str | None = None
     attachment_name: str | None = None
+    page_texts: tuple[str | None, ...] = ()
+    omitted_pages: tuple[int, ...] = ()
+
+
+def join_pages(pages: tuple[str | None, ...]) -> str:
+    """Keep original page numbers, including gaps, without inventing missing text."""
+    return "\n\n".join(
+        text if len(pages) == 1 else f"--- Page {number} ---\n{text}"
+        for number, text in enumerate(pages, 1)
+        if text
+    )
 
 
 def image_mime_type(data: bytes) -> str | None:
@@ -127,25 +139,45 @@ def _sha256(data: bytes) -> str:
 
 
 def _parse_pdf(data: bytes, filename: str, *, max_pages: int, max_image_px: int) -> ParsedDocument:
-    page_images: tuple[PageImage, ...] = ()
+    page_images: list[PageImage] = []
+    pages: list[str | None] = []
+    omitted: list[int] = []
     try:
         with pdfplumber.open(io.BytesIO(data)) as pdf:
-            pages = [page.extract_text() or "" for page in pdf.pages]
-            text = "\n\n".join(page.strip() for page in pages if page.strip())
-            needs_ocr = len(text) < _MIN_TEXT_CHARS
-            if needs_ocr:
-                page_images = tuple(
-                    _normalise(page.to_image(resolution=_PDF_RENDER_DPI).original, max_image_px)
-                    for page in pdf.pages[:max_pages]
-                )
+            for number, page in enumerate(pdf.pages, 1):
+                text = (page.extract_text() or "").strip()
+                if len(text) >= _MIN_TEXT_CHARS:
+                    header = page.crop((0, 0, page.width, min(180, page.height)))
+                    layout = (header.extract_text(layout=True) or "").strip("\n")
+                    if layout.strip():
+                        text = (
+                            "--- Supplementary header layout (same document, not extra items) ---\n"
+                            + layout
+                            + "\n--- Complete page text ---\n"
+                            + text
+                        )
+                    pages.append(text)
+                else:
+                    pages.append(None)
+                    if len(page_images) >= max_pages:
+                        omitted.append(number)
+                    else:
+                        page_images.append(
+                            _normalise(
+                                page.to_image(resolution=_PDF_RENDER_DPI).original,
+                                max_image_px,
+                                number,
+                            )
+                        )
     except Exception as exc:  # pdfplumber raises several unrelated types for bad files
         raise UnreadableDocumentError(
             "The PDF could not be read.", details={"filename": filename}
         ) from exc
+    needs_ocr = bool(page_images or omitted)
     if needs_ocr:
         log.info("pdf_without_text_layer", filename=filename, pages=len(pages))
     return ParsedDocument(
-        text="" if needs_ocr else text,
+        text=join_pages(tuple(pages)),
         sha256=_sha256(data),
         kind="pdf",
         source=InvoiceSource.UPLOAD,
@@ -154,7 +186,9 @@ def _parse_pdf(data: bytes, filename: str, *, max_pages: int, max_image_px: int)
         size_bytes=len(data),
         page_count=len(pages),
         needs_ocr=needs_ocr,
-        page_images=page_images,
+        page_images=tuple(page_images),
+        page_texts=tuple(pages),
+        omitted_pages=tuple(omitted),
     )
 
 
@@ -171,7 +205,13 @@ def _parse_image(
                 raise UnreadableDocumentError(
                     "The image is too large to process.", details={"pixels": width * height}
                 )
-            frames = [frame.copy() for frame in ImageSequence.Iterator(image)]
+            frames = []
+            page_count = 0
+            for page_count, frame in enumerate(ImageSequence.Iterator(image), 1):
+                if frame.width * frame.height > _MAX_PIXELS:
+                    raise UnreadableDocumentError("An image page is too large to process.")
+                if page_count <= max_pages:
+                    frames.append(_normalise(frame, max_image_px, page_count))
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise UnreadableDocumentError(
             "The image could not be read.", details={"filename": filename}
@@ -184,20 +224,22 @@ def _parse_image(
         filename=filename,
         content_type=mime,
         size_bytes=len(data),
-        page_count=len(frames),
+        page_count=page_count,
         needs_ocr=True,
-        page_images=tuple(_normalise(frame, max_image_px) for frame in frames[:max_pages]),
+        page_images=tuple(frames),
+        page_texts=(None,) * page_count,
+        omitted_pages=tuple(range(max_pages + 1, page_count + 1)),
     )
 
 
-def _normalise(image: Image.Image, max_px: int) -> PageImage:
+def _normalise(image: Image.Image, max_px: int, page_number: int | None = None) -> PageImage:
     """Upright (EXIF), RGB, longest side at most *max_px*, JPEG-encoded."""
     upright = ImageOps.exif_transpose(image) or image
     rgb = upright.convert("RGB")
     rgb.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
     buffer = io.BytesIO()
     rgb.save(buffer, format="JPEG", quality=85, optimize=True)
-    return PageImage(data=buffer.getvalue(), mime_type="image/jpeg")
+    return PageImage(data=buffer.getvalue(), mime_type="image/jpeg", page_number=page_number)
 
 
 # ── Text and email ────────────────────────────────────────────────────────────
@@ -280,4 +322,6 @@ def _as_email(
         page_images=inner.page_images,
         sender_email=sender,
         attachment_name=inner.filename,
+        page_texts=inner.page_texts,
+        omitted_pages=inner.omitted_pages,
     )

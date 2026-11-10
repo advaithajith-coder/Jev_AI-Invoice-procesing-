@@ -218,7 +218,8 @@ def test_standard_format_has_every_field(tmp_path: Path) -> None:
 
     assert rows[0][0] == "supplier"
     assert rows[1][2] == "2026-03-05"
-    assert rows[1][-1] == "100.00"
+    assert rows[1][rows[0].index("line_amount")] == "100.00"
+    assert rows[1][rows[0].index("posting_period")] == "2026-03"
 
 
 @pytest.mark.parametrize("hostile", ['=HYPERLINK("http://x")', "+1+1", "-2+3", "@SUM(A1)"])

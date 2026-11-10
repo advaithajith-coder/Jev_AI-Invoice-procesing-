@@ -62,24 +62,70 @@ def rules_context(settings: Settings, approval_limit: Decimal) -> dict[str, Any]
                 f" {QUESTION_SET_VERSION}) with probabilities.",
             ),
             "coding": (
-                "Account coding",
-                "PO, then Jev",
-                f"Each line gets the PO line's account; else Jev's choice when it is at least"
+                "Line classification and account coding",
+                "Matched PO, validated corrections, then Jev",
+                "Reuse supported category, department/project and account data from matched"
+                " PO lines."
+                " Validated corrections apply only within their saved scope. Jev suggests missing"
+                " categories, evidence, department/project and required service dates or asset"
+                " details. For GL coding, use the matched PO account, then a validated correction;"
+                " else Jev's choice when it is at least"
                 f" {settings.coding_min_confidence:.0%} sure; else the vendor's default account;"
                 f" else suspense ({settings.export_suspense_account}).",
+            ),
+            "finance": (
+                "Company policy checks",
+                "Application rules",
+                "Check accounting treatment after classification. Subscriptions spanning multiple"
+                " months need Finance allocation review. Equipment is checked against the"
+                " configured"
+                " capitalization threshold and may require asset details. Dates and supporting"
+                " information remain separate; these checks do not create journal entries.",
+            ),
+            "tax": (
+                "Tax rate and amount cross-checks",
+                "Application rules, with Jev for unfamiliar descriptions",
+                "Massachusetts tax checks use a valid scoped correction or an exact configured"
+                " description treatment when available. Otherwise Jev selects a supported treatment"
+                " with sufficient confidence. The app checks the rate and amount against the"
+                " invoice lines. Unsupported treatments, exemption claims and differences go"
+                " to Finance.",
             ),
             "policy": (
                 "Decision",
                 f"Fixed policy {POLICY_VERSION}",
                 "Turns every finding and Jev answer into reasons and picks the outcome."
-                " Approved automatically only with no reasons at all.",
+                " Automatic approval requires a matched PO, no reasons, and every line coded"
+                " from its matched PO or a validated correction. Non-PO spend needs Budget owner"
+                " approval. JEV accounts, vendor defaults and suspense require Finance review.",
             ),
             "review": (
-                "Review queue",
-                "A person",
-                "Every invoice that is not approved automatically waits here with its reasons."
-                " A person approves or rejects it; a blocked invoice needs a note on how it"
-                " was verified.",
+                "Exception routing",
+                "Jev recommendation with application fallback",
+                "Findings receive a reason, evidence and a responsible team: Purchasing, Delivery"
+                " team, Budget owner, Finance or Supplier clarification needed. The review screen"
+                " brings together invoice lines, PO lines, accepted deliveries and failed checks."
+                " Each exception tracks its owner, status and resolution reason.",
+            ),
+            "person": (
+                "Resolve and review",
+                "Reviewer and application rechecks",
+                "Correct the affected data and recheck eligible waiting invoices. Rechecks reuse"
+                " extracted fields and saved model answers; they show remaining findings and what"
+                " changed. A person approves or rejects; blocked approvals require a verification"
+                " note. Approved reusable corrections can guide later purchases only in their saved"
+                " scope; the model is not automatically retrained.",
+            ),
+            "approved": (
+                "Approved",
+                "Application policy or reviewer",
+                "The invoice is ready for export and appears on the Dashboard. Approval does not"
+                " send money or automatically post a journal entry.",
+            ),
+            "export": (
+                "Export file",
+                "User-requested export",
+                "Download an accounting export file for eligible approved invoices.",
             ),
         },
         "document_checks": [

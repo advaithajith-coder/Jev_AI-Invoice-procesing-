@@ -5,10 +5,12 @@
 {% set opens = ["read", "transcribe", "extract", "document_checks", "master_data", "judgment", "coding", "decision"] %}
 {% set info = invoice.additional_info or {} %}
 {% set step_sources = {"po": "from the PO", "ai": "chosen by Jev", "vendor": "vendor default",
-                       "suspense": "needs coding", "person": "set by a person"} %}
+                       "suspense": "needs coding", "person": "set by a person",
+                       "validated_correction": "from a validated correction",
+                       "learned_correction": "learned from earlier reviewer corrections"} %}
 <section class="steps" aria-labelledby="steps-title" data-finished="{{ 'true' if st.finished else 'false' }}">
   <div class="steps__head">
-    <h2 id="steps-title">Steps</h2>
+    <h2 id="steps-title">Invoice journey</h2>
     {% if st.finished %}
     <p class="steps__total">Finished in <b>{{ st.total_ms | duration }}</b></p>
     {% else %}

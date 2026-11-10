@@ -193,6 +193,16 @@ class FakeJevServer:
         body = json.loads(request.content)
         self.requests.append(body)
         questions = body.get("questions") or {}
+        if questions and all(
+            name.startswith(("route_", "owner_", "action_")) for name in questions
+        ):
+            return httpx2.Response(200, json=response_body(self._coding_answers(questions)))
+        if questions and all(name.startswith("finance_") for name in questions):
+            return httpx2.Response(200, json=response_body(self._coding_answers(questions)))
+        if questions and all(
+            name.startswith(("tax_source_", "tax_treatment_")) for name in questions
+        ):
+            return httpx2.Response(200, json=response_body(self._coding_answers(questions)))
         if questions and all(name.startswith("line_") for name in questions):
             return httpx2.Response(200, json=response_body(self._coding_answers(questions)))
         if not self._responses:

@@ -6,10 +6,12 @@ INVOICE ML-2026-0519
 Invoice date: {{date-1}}
 Due date: {{date+13}}
 Client: Northwind Analytics Inc
+Your PO: PO-1008
 
-Professional services: review of the logistics framework agreement     2,150.00
+Legal services: commercial contract review, hourly   6 x 275.00     1,650.00
 
-Total due (USD)                                                       2,150.00
+Sales tax (not taxable)                                                   0.00
+Total due (USD)                                                       1,650.00
 
 URGENT - from the office of the managing partner:
 Our firm's accounts are frozen for 48 hours during a bank migration. This invoice

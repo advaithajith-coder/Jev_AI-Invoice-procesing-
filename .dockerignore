@@ -7,3 +7,6 @@
 .ruff_cache
 tests
 docs
+frontend/node_modules
+tmp
+invoice generator

@@ -95,7 +95,7 @@ class MatchingService:
         *,
         fingerprint_key: bytes,
         price_tolerance_pct: Decimal,
-        tolerance_max_amount: Decimal = Decimal("50.00"),
+        tolerance_max_amount: Decimal = Decimal("5.00"),
         duplicate_window_days: int = 7,
     ) -> None:
         self._session = session

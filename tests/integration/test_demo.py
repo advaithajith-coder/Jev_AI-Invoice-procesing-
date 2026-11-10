@@ -8,6 +8,7 @@ from jev_invoice.db.models import AppSetting, Vendor
 from jev_invoice.db.session import create_engine, create_session_factory
 from jev_invoice.demo.__main__ import reset_database
 from jev_invoice.demo.pack import SAMPLES, render_text, write_pack
+from jev_invoice.domain.enums import ReasonCode
 from jev_invoice.ingest.parsing import parse_document
 
 TODAY = date(2026, 10, 4)
@@ -30,7 +31,7 @@ def test_every_sample_renders_to_a_file_the_app_can_read(tmp_path: Path) -> None
         assert "{{" not in parsed.text, path.name
         if sample.form == "png":
             assert parsed.needs_ocr, "the scan must go through the vision model"
-        else:
+        elif sample.expect_reason != ReasonCode.WRONG_BILL_TO:
             assert "Northwind Analytics Inc" in parsed.text, path.name
         if sample.email:
             assert parsed.sender_email, path.name
@@ -40,7 +41,7 @@ def test_pack_covers_every_outcome_and_keeps_one_back() -> None:
     expected = {action for sample in SAMPLES for action in sample.expect}
 
     assert len(expected) == 5
-    assert sum(sample.jev_only for sample in SAMPLES) == 2
+    assert sum(sample.jev_only for sample in SAMPLES) == 1
     assert [sample.filename for sample in SAMPLES if not sample.expect] == ["northline-courier.pdf"]
 
 

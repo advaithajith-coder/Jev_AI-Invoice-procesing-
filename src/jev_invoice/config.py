@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # Screen uploads return at once and are processed in the background (watch it live on
     # the invoice's page, step by step). The JSON API always processes before it responds.
     background_processing: bool = True
+    evaluation_dataset_dir: Path = Path("invoice generator/testing segments")
     max_upload_bytes: int = 10 * 1024 * 1024
 
     # Key for HMAC fingerprints of bank account numbers (we never store the numbers).
@@ -85,8 +86,8 @@ class Settings(BaseSettings):
     # ── Business rules ────────────────────────────────────────────────────────
     # Our company: invoices must be addressed (billed) to it.
     company_name: str = "Northwind Analytics Inc"
-    # The company's currency. Only invoices in it are processed automatically; any other
-    # currency goes to a person (there is no exchange-rate conversion yet).
+    massachusetts_tax_checks_enabled: bool = True
+    # The company's currency, used for approval limits and converted invoice totals.
     base_currency: str = Field(default="USD", pattern="^[A-Z]{3}$")
     # Invoices in another currency are converted at the ECB rate for their date (Frankfurter,
     # free, no key) and then checked like any other. Empty: no conversion, so they go to a
@@ -98,10 +99,10 @@ class Settings(BaseSettings):
     # Allowed difference when checking arithmetic (rounding on printed invoices).
     amount_tolerance: Decimal = Decimal("0.02")
     # How far an invoice may exceed the PO price or the received value before it is
-    # flagged: this percentage OR this amount, whichever is smaller ("2% or $50"). A cap
+    # flagged: this percentage OR this amount, whichever is smaller ("2% or $5"). A cap
     # matters on large orders: 2% of a $1,000,000 PO alone would let $20,000 through.
     po_price_tolerance_pct: Decimal = Decimal("2.0")
-    po_tolerance_max_amount: Decimal = Decimal("50.00")
+    po_tolerance_max_amount: Decimal = Decimal("5.00")
     # Same vendor and amount within this many days of another invoice: possible duplicate.
     duplicate_window_days: int = Field(default=7, ge=0, le=90)
     # Invoices dated longer ago than this are flagged as stale (late, or re-sent).

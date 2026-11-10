@@ -1,0 +1,17 @@
+STRATUS TELECOM INC
+1200 Main Street, Dallas TX 75202
+EIN 52-7776665
+
+INVOICE ST-902377
+Statement date: {{date-2}}
+Due date: {{date+28}}
+Account name: Northwind Logistics Ltd
+Service address: 14 Dock Road, Portland ME 04101
+
+Business fiber 1 Gbps, monthly                                      289.00
+
+Subtotal                                                            289.00
+Sales tax 6.25%                                                      18.06
+Total due (USD)                                                     307.06
+
+Pay by ACH: Routing 071000013 Account 1234567890

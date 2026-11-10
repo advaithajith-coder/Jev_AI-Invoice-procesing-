@@ -62,12 +62,51 @@ async def workflow_data(session: SessionDep) -> dict[str, Any]:
         "generated_at": datetime.now(UTC).isoformat(),
         "sample": len(invoices),
         "avg_ms": avg_ms,
+        "speed": await _speed(session, invoices),
         "split": _split(invoices, transcribe),
         "counts": _counts(invoices),
         "in_flight": [await _position(session, invoice) for invoice in in_flight],
         "recent": [_outcome(invoice) for invoice in invoices if invoice.status not in IN_PROGRESS][
             :6
         ],
+    }
+
+
+async def _speed(session: SessionDep, invoices: list[Invoice]) -> dict[str, Any] | None:
+    """The fastest and typical time from arrival to a decision, in processing time.
+
+    Only invoices that reached a decision count. Time is the sum of their steps, so
+    waiting in a queue (or for a rate limit) is left out, as on the desks above.
+    """
+    decided = {
+        invoice.id: invoice
+        for invoice in invoices
+        if invoice.status not in IN_PROGRESS
+        and invoice.status != InvoiceStatus.FAILED
+        and invoice.decisions
+    }
+    if not decided:
+        return None
+    totals = sorted(
+        (float(ms), invoice_id)
+        for invoice_id, ms in await session.execute(
+            select(PipelineStep.invoice_id, func.sum(PipelineStep.duration_ms))
+            .where(PipelineStep.invoice_id.in_(list(decided)))
+            .group_by(PipelineStep.invoice_id)
+        )
+        if ms is not None
+    )
+    if not totals:
+        return None
+    fastest_ms, fastest_id = totals[0]
+    fastest = decided[fastest_id]
+    return {
+        "fastest_ms": round(fastest_ms, 1),
+        "typical_ms": round(totals[len(totals) // 2][0], 1),
+        "count": len(totals),
+        "label": _label(fastest),
+        "number": fastest.invoice_number or "",
+        "url": f"/invoices/{fastest.id}",
     }
 
 
@@ -155,8 +194,27 @@ def _action(invoice: Invoice) -> DecisionAction | None:
     return invoice.decisions[-1].action if invoice.decisions else None
 
 
+@router.get("/", response_class=HTMLResponse)
+async def home_page(request: Request, session: SessionDep) -> HTMLResponse:
+    """A simple decision tree: total invoices, then passed, review and stopped."""
+    return templates.TemplateResponse(
+        request, "home.html", {"w": await workflow_data(session), "nav": "home"}
+    )
+
+
 @router.get("/workflow", response_class=HTMLResponse)
 async def workflow_page(request: Request, session: SessionDep) -> HTMLResponse:
+    """The live map: moving slips along the whole route."""
+    return await _workflow(request, session, pipeline=False)
+
+
+@router.get("/workflow/pipeline", response_class=HTMLResponse)
+async def pipeline_page(request: Request, session: SessionDep) -> HTMLResponse:
+    """Every step as cards, drawn by React from the same data."""
+    return await _workflow(request, session, pipeline=True)
+
+
+async def _workflow(request: Request, session: SessionDep, *, pipeline: bool) -> HTMLResponse:
     settings = request.app.state.settings
     vision = settings.vision_model or "not configured"
     return templates.TemplateResponse(
@@ -164,7 +222,8 @@ async def workflow_page(request: Request, session: SessionDep) -> HTMLResponse:
         "workflow.html",
         {
             "w": await workflow_data(session),
-            "nav": "workflow",
+            "nav": "pipeline" if pipeline else "workflow",
+            "pipeline": pipeline,
             # Who handles the AI desks, as configured: the map should name the real models.
             "vision_label": f"{vision.split(':')[0]}, local",
             "extract_label": settings.groq_model.split("/")[-1],

@@ -1,3 +1,12 @@
+FROM node:22-bookworm-slim AS frontend
+WORKDIR /app/frontend
+RUN corepack enable
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY frontend ./
+COPY src/jev_invoice/web/static/workflow.js /app/src/jev_invoice/web/static/workflow.js
+RUN pnpm build
+
 # ── Build: resolve and install dependencies with uv ─────────────────────────
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
@@ -7,6 +16,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
+COPY --from=frontend /app/src/jev_invoice/web/static/react ./src/jev_invoice/web/static/react
 COPY README.md ./
 RUN uv sync --frozen --no-dev
 

@@ -1,0 +1,19 @@
+ACME SUPPLIES INC
+410 Market St, Denver CO 80202
+EIN 84-1234567
+
+INVOICE AS-31024
+Date: {{date-1}}
+Terms: 2% 10, net 30
+Bill to: Northwind Analytics Inc, Accounts Payable
+Customer PO: PO-1003
+
+Item                                              Qty   Unit price      Amount
+Toner cartridge, black, high yield                  3        94.00      282.00
+
+Subtotal                                                               282.00
+Massachusetts sales tax 6.25%                                           17.63
+Total due                                                             $299.63
+
+Please note our new toner pricing, effective this month.
+Remit to: Routing 021000021 Account 4417926819

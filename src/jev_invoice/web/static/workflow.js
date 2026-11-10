@@ -24,11 +24,11 @@
   const START = [["in", "arrive"], ["arrive_read", "read"]];
   const TEXT = [["read_extract", "extract"]];
   const SCAN = [["read_vision", "vision"], ["vision_extract", "extract"]];
-  const CHECKS = [["extract_doc", "doc"], ["doc_md", "md"], ["md_jev", "jev"], ["jev_coding", "coding"], ["coding_policy", "policy"]];
-  const PAID = [["approved_export", "export"], ["export_accounting", "accounting"]];
-  const AUTO = [["policy_approved", "approved", "ok"], ...PAID];
+  const CHECKS = [["extract_doc", "doc"], ["doc_md", "md"], ["md_jev", "jev"], ["jev_coding", "coding"], ["coding_finance", "finance"], ["finance_tax", "tax"], ["coding_policy", "policy"]];
+  const EXPORT = [["approved_export", "export"]];
+  const AUTO = [["policy_approved", "approved", "ok"], ...EXPORT];
   const REVIEW = [["policy_review", "review", "human"], ["review_person", "person"]];
-  const REVIEW_OK = [...REVIEW, ["person_approved", "approved", "ok"], ...PAID];
+  const REVIEW_OK = [...REVIEW, ["person_approved", "approved", "ok"], ...EXPORT];
   const REVIEW_NO = [...REVIEW, ["person_rejected", "rejected", "block"]];
   const FAILED = [["extract_failed", "failed", "block"]];
 
@@ -156,6 +156,21 @@
     set("data-split-review", pct(Math.max(0, 1 - s.auto - s.failed)));
     set("data-split-ok", pct(s.review_approved));
     set("data-split-failed", pct(s.failed));
+    renderSpeed();
+  }
+
+  function renderSpeed() {
+    const p = document.querySelector("[data-speed]");
+    if (!p) return;
+    const sp = data.speed;
+    p.hidden = !sp;
+    if (!sp) return;
+    const link = el("a", `${sp.label}${sp.number ? ` ${sp.number}` : ""}`);
+    link.href = sp.url;
+    p.replaceChildren(
+      "Fastest invoice: ", el("strong", duration(sp.fastest_ms)), " from arrival to decision (",
+      link, `). Typical: ${duration(sp.typical_ms)} across ${sp.count} invoices.`,
+    );
   }
 
   function renderLive() {
@@ -189,6 +204,7 @@
 
   function renderLists() {
     const now = root.querySelector("[data-now]");
+    if (!now) return;
     now.replaceChildren(...(data.in_flight.length ? data.in_flight.map((item) => {
       const li = el("li");
       const a = el("a", item.label);

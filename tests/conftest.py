@@ -23,6 +23,7 @@ for _name in ("GROQ_API_KEY", "TYPESAFE_API_KEY"):
 def make_settings(tmp_path: Path, **overrides: object) -> Settings:
     values: dict[str, object] = {
         "app_env": "test",
+        "massachusetts_tax_checks_enabled": False,
         "log_json": False,
         "database_url": f"sqlite+aiosqlite:///{(tmp_path / 'test.db').as_posix()}",
         "storage_dir": tmp_path / "files",

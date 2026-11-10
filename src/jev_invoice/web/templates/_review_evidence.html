@@ -1,0 +1,17 @@
+<section class="review-evidence" aria-labelledby="evidence-title">
+  <div class="section-head"><h2 id="evidence-title">Review the evidence</h2><a href="/invoices/{{ invoice.id }}/document" target="_blank" rel="noopener">Open original invoice</a></div>
+  {% if comparison.invoice_findings %}<ul>{% for finding in comparison.invoice_findings %}<li>{{ finding.message }}</li>{% endfor %}</ul>{% endif %}
+  {% for row in comparison.rows %}
+  {% set line = row.invoice_line %}
+  <details class="evidence-line" id="evidence-line-{{ line.line_no }}" {% if row.findings %}open{% endif %}>
+    <summary>{{ line.line_no }}. {{ line.description }} {% if row.findings %}<span class="tag tag--human">Needs attention</span>{% endif %}</summary>
+    <div class="evidence-grid">
+      <section><h3>Invoice line</h3><p>{{ line.amount | money(invoice.currency) }}</p><p class="small">{% if line.quantity is not none %}Quantity: {{ line.quantity | qty }}<br>{% endif %}{% if line.unit_price is not none %}Unit price: {{ line.unit_price | money(invoice.currency) }}<br>{% endif %}GL: {{ line.gl_account_code or 'Not coded' }}</p></section>
+      <section><h3>Matched PO line</h3>{% if row.po_line %}<p>{{ row.po_line.description }}</p><p class="small">{{ invoice.po_reference }} · line {{ row.po_line.line_no }}<br>Ordered: {{ row.po_line.quantity | qty }}<br>Unit price before tax: {{ row.po_line.unit_price | money(invoice.currency) }}<br>Amount before tax: {{ row.po_line.net_amount | money(invoice.currency) }}<br>PO tax rate: {{ row.po_line.tax_rate_percent ~ '%' if row.po_line.tax_rate_percent is not none else 'Not entered' }}</p>{% else %}<p class="muted">No confirmed PO line match.</p>{% endif %}</section>
+      <section><h3>Accepted delivery / receipts</h3>{% if invoice.purchase_order and not invoice.purchase_order.needs_receiving %}<p>Service order: delivery matching does not apply.</p>{% elif row.deliveries %}<p><strong>{{ row.deliveries | sum(attribute="quantity") | qty }} received</strong></p><ul>{% for receipt in row.deliveries %}<li>{{ receipt.number }}<br>{{ receipt.date | date }} · {{ receipt.quantity | qty }} received</li>{% endfor %}</ul><p class="small muted">Recorded receipts used by the matcher. Reported damage, shortages and returns appear below.</p><a href="/receiving#delivery-issues">Delivery issues</a>{% else %}<p class="muted">No recorded delivery for this matched line.</p>{% endif %}{% for delivery_issue in row.delivery_issues %}<p class="banner banner--error"><strong>{{ delivery_issue.category | replace("_", " ") | capitalize }}: {{ delivery_issue.quantity }}</strong><br>{{ delivery_issue.reason }}<br><span class="small">{{ delivery_issue.status | replace("_", " ") }}</span></p>{% endfor %}</section>
+    </div>
+    {% if row.findings %}<h3>Failed checks</h3><ul>{% for finding in row.findings %}<li>{{ finding.message }}</li>{% endfor %}</ul>{% endif %}
+    {% if row.tax %}<p><strong>Tax recommendation:</strong> {{ row.tax.expected_rate ~ '%' if row.tax.expected_rate is not none else 'Finance review' }} · {{ row.tax.match }}</p>{% endif %}
+  </details>
+  {% endfor %}
+</section>

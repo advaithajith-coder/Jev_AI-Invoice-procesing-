@@ -48,6 +48,7 @@ class ExportBill:
     tax: Decimal
     total: Decimal
     lines: tuple[ExportLine, ...]
+    posting_period: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,7 +139,7 @@ def render_standard(bills: list[ExportBill], settings: Settings) -> str:
     header = [
         "supplier", "invoice_number", "invoice_date", "due_date", "currency",
         "line_description", "quantity", "unit_price", "line_amount", "line_tax",
-        "account_code", "account_name", "invoice_tax", "invoice_total",
+        "account_code", "account_name", "invoice_tax", "invoice_total", "posting_period",
     ]  # fmt: skip
     rows = [
         [
@@ -156,6 +157,7 @@ def render_standard(bills: list[ExportBill], settings: Settings) -> str:
             line.account_name,
             _money(bill.tax),
             _money(bill.total),
+            bill.posting_period or bill.invoice_date.strftime("%Y-%m"),
         ]
         for bill in bills
         for line in bill.lines

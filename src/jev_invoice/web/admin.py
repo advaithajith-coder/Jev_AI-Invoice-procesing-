@@ -8,6 +8,7 @@ trail with every change.
 import uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from itertools import zip_longest
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
@@ -15,6 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import ValidationError
 from sqlalchemy import select
 
+from jev_invoice.accounting.controls import AccountingPolicy, load_policy, save_policy
 from jev_invoice.api.dependencies import (
     SessionDep,
     get_export_service,
@@ -23,7 +25,8 @@ from jev_invoice.api.dependencies import (
     get_po_service,
     get_vendor_service,
 )
-from jev_invoice.core.errors import AppError
+from jev_invoice.coding.classification import POFinanceDetails
+from jev_invoice.core.errors import AppError, FormError
 from jev_invoice.db.models import AuditEvent, Invoice
 from jev_invoice.domain.enums import GLAccountType, PurchaseOrderStatus, VendorStatus
 from jev_invoice.export.formats import FORMATS
@@ -51,6 +54,7 @@ from jev_invoice.masterdata.vendors import (
 )
 from jev_invoice.pipeline.recheck import recheck_waiting_on
 from jev_invoice.pipeline.service import InvoicePipeline
+from jev_invoice.tax.massachusetts import VERSION, tax_rule_rows
 from jev_invoice.web.routes import REVIEWER_COOKIE, templates
 
 router = APIRouter(include_in_schema=False)
@@ -72,11 +76,6 @@ NOTICES = {
     "account_updated": "Account saved.",
     "settings_saved": "Saved. Invoices processed from now on use the new limit.",
 }
-
-
-class FormError(AppError):
-    status_code = 400
-    code = "invalid_form"
 
 
 def _person(name: str) -> str:
@@ -351,6 +350,7 @@ async def purchase_orders_page(request: Request, pos: POsDep, vendors: VendorsDe
             "vendors": await vendors.list_all(),
             "nav": "pos",
             "today": today_utc(),
+            "gl_accounts": await vendors.gl_accounts(),
         },
     )
 
@@ -382,6 +382,48 @@ def _parse_lines(text: str) -> list[POLineIn]:
     return lines
 
 
+def _parse_item_fields(form: Any) -> list[POLineIn]:
+    """Separate item fields; preserve descriptions without delimiter parsing."""
+    columns = [
+        form.getlist(key)
+        for key in ("item_description", "item_quantity", "item_price", "item_account")
+    ]
+    if len({len(column) for column in columns}) != 1:
+        raise FormError("Each item needs a quantity, unit price and account field.")
+    if not 1 <= len(columns[0]) <= 200:
+        raise FormError("Add between 1 and 200 items.")
+    result = []
+    for number, values in enumerate(zip(*columns, strict=True), 1):
+        description, quantity, price, account = (str(value).strip() for value in values)
+        tax_rates = form.getlist("item_tax_rate_percent")
+        if tax_rates and len(tax_rates) != len(columns[0]):
+            raise FormError("Each item must have a matching tax-rate field.")
+        tax_rate = str(tax_rates[number - 1]).strip() if tax_rates else ""
+        details = {}
+        for key in POFinanceDetails.model_fields:
+            submitted_values = form.getlist(f"item_{key}")
+            if submitted_values and len(submitted_values) != len(columns[0]):
+                raise FormError("Each item must have matching finance detail fields.")
+            if submitted_values:
+                value = str(submitted_values[number - 1]).strip()
+                if value:
+                    details[key] = value
+        try:
+            result.append(
+                POLineIn(
+                    description=description,
+                    quantity=Decimal(quantity),
+                    unit_price=Decimal(price),
+                    gl_account_code=account or None,
+                    tax_rate_percent=Decimal(tax_rate) if tax_rate else None,
+                    finance_details=POFinanceDetails.model_validate(details) if details else None,
+                )
+            )
+        except InvalidOperation as exc:
+            raise FormError(f"Item {number}: enter a valid quantity and unit price.") from exc
+    return result
+
+
 @router.post("/purchase-orders", response_model=None)
 async def create_po(
     request: Request,
@@ -396,6 +438,28 @@ async def create_po(
     needs_receiving: Annotated[str, Form()] = "",
     person: Annotated[str, Form()] = "",
 ) -> Response:
+    submitted = await request.form()
+    item_rows = [
+        {
+            "description": str(description),
+            "quantity": str(quantity),
+            "price": str(price),
+            "account": str(account),
+        }
+        for description, quantity, price, account in zip_longest(
+            submitted.getlist("item_description"),
+            submitted.getlist("item_quantity"),
+            submitted.getlist("item_price"),
+            submitted.getlist("item_account"),
+            fillvalue="",
+        )
+    ]
+    for index, row in enumerate(item_rows):
+        tax_rates = submitted.getlist("item_tax_rate_percent")
+        row["tax_rate_percent"] = str(tax_rates[index]) if index < len(tax_rates) else ""
+        for key in POFinanceDetails.model_fields:
+            values = submitted.getlist(f"item_{key}")
+            row[key] = str(values[index]) if index < len(values) else ""
     try:
         actor = _person(person)
         data = POCreate(
@@ -403,7 +467,12 @@ async def create_po(
             vendor_id=uuid.UUID(vendor_id) if vendor_id else uuid.UUID(int=0),
             issued_date=date.fromisoformat(issued_date) if issued_date else today_utc(),
             currency=currency or None,
-            lines=_parse_lines(lines),
+            lines=_parse_item_fields(submitted)
+            if any(
+                key in submitted
+                for key in ("item_description", "item_quantity", "item_price", "item_account")
+            )
+            else _parse_lines(lines),
             needs_receiving=bool(needs_receiving),
         )
         po = await pos.create(data, actor=actor)
@@ -424,10 +493,12 @@ async def create_po(
                     "issued_date": issued_date,
                     "currency": currency,
                     "lines": lines,
+                    "items": item_rows,
                     "needs_receiving": needs_receiving,
                     "submitted": "1",
                 },
                 "person": person,
+                "gl_accounts": await vendors.gl_accounts(),
             },
             400,
         )
@@ -672,20 +743,10 @@ async def save_account(
 async def _settings_context(request: Request, session: SessionDep) -> dict[str, Any]:
     settings = request.app.state.settings
     rules = RulesService(session, settings)
-    events = list(
-        await session.scalars(
-            select(AuditEvent)
-            .where(AuditEvent.entity_type == "setting")
-            .order_by(AuditEvent.id.desc())
-            .limit(20)
-        )
-    )
     return {
+        "accounting_policy": await load_policy(session),
         "approval_limit": await rules.approval_limit(),
-        "approval_setting": await rules.approval_limit_setting(),
-        "default_limit": settings.approval_limit,
         "currency": settings.base_currency,
-        "events": events,
         "nav": "settings",
     }
 
@@ -703,14 +764,40 @@ async def save_approval_limit(
     person: Annotated[str, Form()] = "",
 ) -> Response:
     try:
-        actor = _person(person)
+        actor = _person(person) if person.strip() else "Finance"
         await RulesService(session, request.app.state.settings).set_approval_limit(
             approval_limit, actor=actor
         )
     except AppError as exc:
         await session.rollback()
         context = await _settings_context(request, session)
-        context.update(error=exc.message, person=person, typed=approval_limit)
+        context.update(error=exc.message, typed=approval_limit)
+        return _render(request, "settings.html", context, 400)
+    return _redirect("/settings?notice=settings_saved", actor if person.strip() else None)
+
+
+@router.post("/settings/accounting-policy", response_model=None)
+async def save_accounting_policy(request: Request, session: SessionDep) -> Response:
+    form = await request.form()
+    try:
+        actor = _person(str(form.get("person", "")))
+        policy = AccountingPolicy.model_validate(
+            dict(
+                asset_threshold=Decimal(str(form["asset_threshold"]))
+                if form.get("asset_threshold")
+                else None,
+                asset_currency=request.app.state.settings.base_currency,
+                prepayment_rule="multi_period",
+                policy_reference=str(form.get("policy_reference", "")).strip(),
+            )
+        )
+        if policy.asset_threshold is not None and not policy.policy_reference:
+            raise FormError("Add the company policy reference or reason for the asset threshold.")
+        await save_policy(session, policy, actor)
+    except (AppError, ValidationError, ValueError, InvalidOperation) as exc:
+        await session.rollback()
+        context = await _settings_context(request, session)
+        context["error"] = _message(exc)
         return _render(request, "settings.html", context, 400)
     return _redirect("/settings?notice=settings_saved", actor)
 
@@ -760,4 +847,13 @@ async def download_export(batch_id: uuid.UUID, exports: ExportsDep) -> Response:
         content=batch.content.encode("utf-8-sig"),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{batch.filename}"'},
+    )
+
+
+@router.get("/tax-rules", response_class=HTMLResponse)
+async def tax_rules(request: Request) -> Response:
+    return _render(
+        request,
+        "tax_rules.html",
+        {"nav": "tax", "rules": tax_rule_rows(), "version": VERSION},
     )

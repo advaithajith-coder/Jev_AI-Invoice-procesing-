@@ -30,6 +30,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from jev_invoice.accounting.controls import check_accounting, posting_period
 from jev_invoice.config import Settings
 from jev_invoice.core import audit
 from jev_invoice.core.errors import AppError, NotFoundError
@@ -37,6 +38,7 @@ from jev_invoice.db.models import ExportBatch, GLAccount, Invoice, PurchaseOrder
 from jev_invoice.domain.enums import DocumentType, InvoiceStatus
 from jev_invoice.domain.payment import payment_terms
 from jev_invoice.export.formats import FORMATS, ExportBill, ExportLine
+from jev_invoice.ingest.coverage import require_complete_document
 
 _CENT = Decimal("0.01")
 SHIPPING_ACCOUNT = "6800"  # Courier and Postage in the demo chart of accounts
@@ -86,7 +88,8 @@ class ExportService:
         ready: list[tuple[Invoice, ExportBill]] = []
         not_ready: list[NotReady] = []
         for invoice in invoices:
-            bill = self.build_bill(invoice, names)
+            checks = await check_accounting(self._session, invoice)
+            bill = checks[0].message if checks else self.build_bill(invoice, names)
             if isinstance(bill, str):
                 not_ready.append(NotReady(invoice, bill))
             else:
@@ -117,6 +120,18 @@ class ExportService:
         names = await self._account_names()
         bills: list[ExportBill] = []
         for invoice in invoices:
+            checks = await check_accounting(self._session, invoice)
+            if checks:
+                raise ExportError(checks[0].message)
+            if (
+                format_key != "standard"
+                and invoice.invoice_date
+                and posting_period(invoice) != invoice.invoice_date.strftime("%Y-%m")
+            ):
+                raise ExportError(
+                    "This CSV format has no separate posting-period field. Use Standard CSV "
+                    "and confirm the selected period in your accounting system."
+                )
             if invoice.status != InvoiceStatus.APPROVED or invoice.export_batch_id is not None:
                 raise ExportError(
                     f"Invoice {invoice.invoice_number or invoice.id} is not waiting for export"
@@ -151,7 +166,11 @@ class ExportService:
                 entity_type="invoice",
                 entity_id=invoice.id,
                 actor=actor,
-                data={"batch_id": str(batch.id), "format": export_format.key},
+                data={
+                    "batch_id": str(batch.id),
+                    "format": export_format.key,
+                    "posting_period": posting_period(invoice),
+                },
             )
         audit.record(
             self._session,
@@ -185,6 +204,10 @@ class ExportService:
 
     def build_bill(self, invoice: Invoice, account_names: dict[str, str]) -> ExportBill | str:
         """The bill to export, or a plain-language reason it cannot be exported yet."""
+        try:
+            require_complete_document(invoice)
+        except AppError as exc:
+            return exc.message
         if invoice.document_type == DocumentType.CREDIT_NOTE:
             return "a credit note: apply it to the vendor's invoice instead"
         if invoice.hold_kind:
@@ -291,6 +314,7 @@ class ExportService:
             tax=tax,
             total=invoice.total,
             lines=lines,
+            posting_period=posting_period(invoice),
         )
 
     def _account_code(self, invoice: Invoice) -> str:

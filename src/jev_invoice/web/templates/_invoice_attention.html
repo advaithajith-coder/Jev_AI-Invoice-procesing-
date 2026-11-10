@@ -1,0 +1,71 @@
+{% from "_history.html" import person_field %}
+{% set routes = (decision.exception_routing or []) if decision else [] %}
+{% set tracked_codes = exceptions | map(attribute="code") | list %}
+{% if exceptions or (open_task and decision) %}
+<section class="invoice-attention" id="exception-workflow" aria-labelledby="exception-title">
+  <div class="section-head">
+    <h2 id="exception-title">Needs attention{% if not open_task %} · History{% endif %}</h2>
+    {% if open_task %}<a href="#review-title">Go to decision</a>{% endif %}
+  </div>
+  {% for issue in exceptions %}
+  {% set route = routes | selectattr("code", "equalto", issue.code) | first | default(none) %}
+  {% set active = open_task and issue.status not in ['cleared','accepted','rejected'] %}
+  <details class="evidence-line" {% if active and error %}open{% endif %}>
+    <summary>
+      <strong>{{ issue.code | replace('_', ' ') | capitalize }}</strong>
+      <span class="tag">{{ issue.status | replace('_', ' ') }}</span>
+      <span class="muted small">{{ issue.owner }}{% if issue.assigned_to %} · {{ issue.assigned_to }}{% endif %}</span>
+      {% if active and issue.evidence.get('next_action') %}
+      <span class="sub"><strong>Next action:</strong> {{ issue.evidence.next_action }}</span>
+      {% endif %}
+    </summary>
+    {% if route and route.route == 'Supplier clarification needed' %}<p>{{ route.route }}</p>{% endif %}
+    {% for message in issue.evidence.get('findings', []) %}<p>{{ message }}</p>{% endfor %}
+    {% if active %}
+      {% set target = {
+        'TAX_REVIEW_REQUIRED': ('tax-review-title', 'Check tax'),
+        'GL_CODING_REVIEW': ('processing-details', 'Review line coding'),
+        'FINANCE_CLASSIFICATION_REVIEW': ('processing-details', 'Review line coding'),
+        'ACCOUNTING_PERIOD_REVIEW': ('accounting-details', 'Review accounting period'),
+        'ACCOUNTING_TREATMENT_REVIEW': ('accounting-details', 'Review accounting treatment')
+      }.get(issue.code, ('evidence-title', 'Review invoice evidence') if invoice.lines or comparison.invoice_findings else ('doc-title', 'Review the original')) %}
+      {% set links = namespace(has_lines=false) %}
+      <p>
+      {% for row in comparison.rows %}
+        {% if row.findings | selectattr('code', 'equalto', issue.code) | list %}
+          {% if links.has_lines %} · {% endif %}
+          <a href="#evidence-line-{{ row.invoice_line.line_no }}">View line {{ row.invoice_line.line_no }}</a>
+          {% set links.has_lines = true %}
+        {% endif %}
+      {% endfor %}
+      {% if not links.has_lines or target[0] != 'evidence-title' %}
+        {% if links.has_lines %} · {% endif %}<a href="#{{ target[0] }}">{{ target[1] }}</a>
+      {% endif %}
+      </p>
+    {% endif %}
+    {% if issue.resolution_reason %}<p><strong>Latest update / resolution:</strong> {{ issue.resolution_reason }}</p>{% endif %}
+    {% if issue.evidence.get('changed') %}<details open><summary>What changed on recheck</summary><p>Before: {{ issue.evidence.get('previous_findings', []) | join('; ') or 'No finding' }}</p><p>Now: {{ issue.evidence.get('findings', []) | join('; ') or 'Control no longer reports this issue' }}</p></details>{% endif %}
+    {% if 'previous_findings' in issue.evidence and not issue.evidence.get('changed') %}<p class="small muted">Latest recheck: findings unchanged; the control still needs resolution.</p>{% endif %}
+    {% if issue.status == 'accepted' %}<p class="muted">Reviewer accepted this exception. The control was not cleared.</p>{% endif %}
+    {% if open_task and issue.code in decision.reason_codes %}
+    <form method="post" action="/invoices/{{ invoice.id }}/exceptions/{{ issue.id }}">
+      <div class="field-row"><div class="field"><label for="owner-{{ issue.id }}">Responsible team</label><select id="owner-{{ issue.id }}" name="owner">{% for owner in exception_owners %}<option {% if owner == issue.owner %}selected{% endif %}>{{ owner }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="assigned-{{ issue.id }}">Assigned person (optional)</label><input id="assigned-{{ issue.id }}" name="assigned_to" maxlength="100" value="{{ issue.assigned_to or '' }}"></div>
+      <div class="field"><label for="status-{{ issue.id }}">Status</label><select id="status-{{ issue.id }}" name="status">{% for status in exception_statuses %}<option value="{{ status }}" {% if status == issue.status %}selected{% endif %}>{{ status | replace('_',' ') | capitalize }}</option>{% endfor %}</select></div></div>
+      <div class="field"><label for="reason-{{ issue.id }}">Update / resolution reason</label><textarea id="reason-{{ issue.id }}" name="reason" rows="2" maxlength="2000" required></textarea></div>
+      {{ person_field(reviewer, 'person-' ~ issue.id) }}
+      <button class="button" type="submit">Save update</button> <button class="button button--primary" type="submit" name="recheck" value="yes">Save and recheck</button>
+      <p class="small muted">Recheck runs document, vendor, PO, delivery and stored tax controls without model calls. A failed check stays open. Existing approval rules apply if every control clears.</p>
+    </form>{% endif %}
+  </details>
+  {% endfor %}
+  {% if open_task %}
+    {% for route in routes if route.code not in tracked_codes %}
+    <p><strong>{{ route.code | replace('_', ' ') | capitalize }}</strong> · {{ route.owner }}<br>
+      {{ route.next_action }}{% if route.route == 'Supplier clarification needed' %} · {{ route.route }}{% endif %}</p>
+    {% else %}
+    {% if not exceptions %}<p>{{ decision.rationale }}</p>{% endif %}
+    {% endfor %}
+  {% endif %}
+</section>
+{% endif %}

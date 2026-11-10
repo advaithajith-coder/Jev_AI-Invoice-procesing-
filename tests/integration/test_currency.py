@@ -36,6 +36,10 @@ class FakeRates:
         return None if self.rate is None else (self.rate, on)
 
 
+# Stratus bills without a PO: a budget owner signs off and Finance confirms the coding.
+NO_PO_SIGN_OFF = {"NON_PO_APPROVAL_REQUIRED", "GL_CODING_REVIEW"}
+
+
 def _stratus_inr(**overrides: Any) -> dict[str, Any]:
     fields: dict[str, Any] = {
         "vendor_name": "Stratus Telecom Inc",
@@ -94,14 +98,17 @@ def _upload(
 
 
 @pytest.mark.usefixtures("inr_vendor")
-def test_inr_invoice_is_converted_and_approved_like_any_other(
+def test_inr_invoice_is_converted_and_treated_like_any_other(
     client: TestClient, app: FastAPI, seeded_settings: Settings
 ) -> None:
-    # INR 300,000 is USD 3,114.00 at 0.01038: under the USD 5,000 limit.
+    # INR 300,000 is USD 3,114.00 at 0.01038: under the USD 5,000 limit. Stratus bills
+    # without a PO, so like any Stratus bill it needs a budget owner's sign-off; nothing
+    # about the currency holds it.
     body = _upload(client, app, seeded_settings, _stratus_inr(), FakeRates())
 
-    assert body["decision"]["action"] == "auto_approve"
-    assert body["decision"]["reason_codes"] == []
+    assert set(body["decision"]["reason_codes"]) == NO_PO_SIGN_OFF
+    [task] = client.get("/api/v1/review").json()
+    client.post(f"/api/v1/review/{task['id']}/approve", json={"reviewer": "maya"})
     page = client.get(f"/invoices/{body['id']}").text
     assert "≈ USD 3,114.00" in page
     assert "1 INR = 0.01038 USD" in page
@@ -118,8 +125,9 @@ def test_approval_limit_compares_the_converted_total(
     fields = _stratus_inr(subtotal=600000, total=600000, line_items=[])
     body = _upload(client, app, seeded_settings, fields, FakeRates())
 
-    assert body["decision"]["action"] == "route_approval"
-    assert body["decision"]["reason_codes"] == ["OVER_APPROVAL_LIMIT"]
+    codes = set(body["decision"]["reason_codes"])
+    assert "OVER_APPROVAL_LIMIT" in codes
+    assert codes - NO_PO_SIGN_OFF == {"OVER_APPROVAL_LIMIT"}
     messages = [finding["message"] for finding in body["decision"]["findings"]]
     assert any("USD 6,228.00" in message for message in messages)
 
@@ -132,7 +140,7 @@ def test_without_a_rate_a_person_decides(
 
     assert body["decision"]["action"] == "hold_review"
     # Rupees are never compared with the dollar limit as if they were dollars.
-    assert body["decision"]["reason_codes"] == ["FOREIGN_CURRENCY"]
+    assert set(body["decision"]["reason_codes"]) - NO_PO_SIGN_OFF == {"FOREIGN_CURRENCY"}
 
 
 @pytest.mark.usefixtures("inr_vendor")
@@ -153,7 +161,7 @@ def test_a_vendor_that_bills_in_dollars_still_needs_a_person_for_rupees(
 ) -> None:
     body = _upload(client, app, seeded_settings, _stratus_inr(), FakeRates())
 
-    assert body["decision"]["reason_codes"] == ["CURRENCY_MISMATCH"]
+    assert set(body["decision"]["reason_codes"]) - NO_PO_SIGN_OFF == {"CURRENCY_MISMATCH"}
 
 
 # ── The ECB rate source ───────────────────────────────────────────────────────

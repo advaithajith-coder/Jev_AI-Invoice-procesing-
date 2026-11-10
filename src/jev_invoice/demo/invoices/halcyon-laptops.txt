@@ -13,6 +13,7 @@ Business laptop, 14-inch, 32GB RAM, 1TB SSD        10     1,150.00    11,500.00
 USB-C docking station                              10       145.00     1,450.00
 
 Subtotal                                                              12,950.00
-Total due (USD)                                                       12,950.00
+Massachusetts sales tax 6.25%                                            809.38
+Total due (USD)                                                       13,759.38
 
 Remit to: Routing 121000358 Account 5698765432

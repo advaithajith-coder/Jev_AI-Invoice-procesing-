@@ -1,12 +1,12 @@
 """Review screens: inbox, review queue, and the invoice page where a person decides.
 
-Plain HTML forms that post and redirect (no client framework). Jinja2 autoescaping
+HTML forms post and redirect, with React enhancements. Jinja2 autoescaping
 is on, so text from invoices (untrusted) is always rendered as text, never markup.
 """
 
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
@@ -18,17 +18,20 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from jev_invoice.accounting.controls import check_accounting, period
 from jev_invoice.api.dependencies import SessionDep, get_app_settings, get_pipeline
 from jev_invoice.api.routes.invoices import PayloadTooLargeError
+from jev_invoice.coding.classification import CATEGORIES
 from jev_invoice.config import Settings
 from jev_invoice.core import audit
-from jev_invoice.core.errors import AppError, NotFoundError
+from jev_invoice.core.errors import AppError, FormError, NotFoundError
 from jev_invoice.db.models import (
     AuditEvent,
     Decision,
     GLAccount,
     Invoice,
     InvoiceCredit,
+    InvoiceException,
     ReviewTask,
 )
 from jev_invoice.decision.policy import DEFAULT_THRESHOLDS
@@ -46,22 +49,26 @@ from jev_invoice.payables.service import (
     is_credit_note,
     payment_plan,
 )
+from jev_invoice.pipeline.exceptions import EDITABLE_STATUSES, OWNERS
 from jev_invoice.pipeline.review import ReviewService
 from jev_invoice.pipeline.service import InvoicePipeline, invoice_query
+from jev_invoice.tax.massachusetts import SECTIONS, TREATMENTS
 from jev_invoice.web import labels
 from jev_invoice.web.lifecycle import lifecycle
+from jev_invoice.web.review_evidence import comparison, tax_summary
 from jev_invoice.web.steps import load_steps
 
 router = APIRouter(include_in_schema=False)
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
+
+@router.get("/evaluations", response_class=HTMLResponse)
+async def evaluations_page(request: Request) -> Response:
+    return templates.TemplateResponse(request, "evaluations.html", {"nav": "evaluations"})
+
+
 REVIEWER_COOKIE = "reviewer"
 BROWSER_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}  # TIFF does not display
-
-
-class FormError(AppError):
-    status_code = 400
-    code = "invalid_form"
 
 
 NOTICES = {
@@ -70,6 +77,12 @@ NOTICES = {
     "approved": "Approved and recorded.",
     "accounts_saved": "Accounts saved and recorded in the history.",
     "rejected": "Rejected and recorded.",
+    "exception_saved": "Exception update saved in the history.",
+    "exception_rechecked": "Controls rechecked. See the current statuses and changes below.",
+    "exception_unavailable": (
+        "Update saved. Recheck requires a saved extraction and open review task."
+    ),
+    "exception_held": "Update saved. Recheck was not run while the invoice is on hold.",
 }
 
 
@@ -135,7 +148,7 @@ templates.env.filters.update(
 )
 # Changes when any stylesheet or script changes, so browsers fetch the new version.
 _STATIC = Path(__file__).parent / "static"
-ASSET_VERSION = max(int(path.stat().st_mtime) for path in _STATIC.iterdir() if path.is_file())
+ASSET_VERSION = max(path.stat().st_mtime_ns for path in _STATIC.rglob("*") if path.is_file())
 
 _LEGAL_SUFFIX = re.compile(r",?\s+(inc|llc|ltd|llp|corp|co|plc|gmbh)\.?$", re.IGNORECASE)
 
@@ -186,7 +199,7 @@ async def _inbox_context(session: SessionDep, status: InvoiceStatus | None) -> d
     }
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/inbox", response_class=HTMLResponse)
 async def inbox(
     request: Request,
     session: SessionDep,
@@ -302,6 +315,18 @@ async def invoice_context(
     )
     return {
         "balance": balance,
+        "comparison": await comparison(session, invoice, decision),
+        "tax_summary": tax_summary(invoice),
+        "accounting_review": (invoice.additional_info or {}).get("accounting", {}),
+        "exceptions": list(
+            await session.scalars(
+                select(InvoiceException)
+                .where(InvoiceException.invoice_id == invoice.id)
+                .order_by(InvoiceException.created_at)
+            )
+        ),
+        "exception_owners": OWNERS,
+        "exception_statuses": EDITABLE_STATUSES,
         "is_credit_note": credit_note,
         "payable": invoice.status in PAYABLE_STATUSES and not credit_note,
         "plan": payment_plan(invoice, today),
@@ -333,6 +358,9 @@ async def invoice_context(
         "proposes_reject": bool(decision and decision.action == DecisionAction.REJECT_DOCUMENT),
         "reviewer": request.cookies.get(REVIEWER_COOKIE, ""),
         "gl_accounts": gl_accounts,
+        "correction_categories": CATEGORIES,
+        "correction_tax_sections": SECTIONS,
+        "correction_tax_treatments": TREATMENTS,
         "notice": NOTICES.get(request.query_params.get("notice", "")),
         "nav": "review" if open_task else "inbox",
     }
@@ -344,6 +372,232 @@ async def invoice_page(
 ) -> HTMLResponse:
     context = await invoice_context(request, session, invoice_id)
     return templates.TemplateResponse(request, "invoice.html", context)
+
+
+@router.post("/invoices/{invoice_id}/exceptions/{exception_id}", response_model=None)
+async def update_exception(
+    invoice_id: uuid.UUID, exception_id: uuid.UUID, request: Request, session: SessionDep
+) -> Response:
+    form = await request.form()
+    person = str(form.get("person", "")).strip()
+    owner = str(form.get("owner", ""))
+    status = str(form.get("status", ""))
+    reason = str(form.get("reason", "")).strip()
+    assigned = str(form.get("assigned_to", "")).strip()
+    if not person or len(person) > 100 or not reason or len(reason) > 2000 or len(assigned) > 100:
+        raise FormError(
+            "Enter your name and an update / resolution reason (at most 2,000 characters)."
+        )
+    if owner not in OWNERS or status not in EDITABLE_STATUSES:
+        raise FormError("Choose a valid owner and workflow status.")
+    invoice = await session.scalar(
+        invoice_query().where(Invoice.id == invoice_id).with_for_update()
+    )
+    row = await session.scalar(
+        select(InvoiceException)
+        .where(InvoiceException.id == exception_id, InvoiceException.invoice_id == invoice_id)
+        .with_for_update()
+    )
+    if (
+        invoice is None
+        or row is None
+        or invoice.status != InvoiceStatus.PENDING_REVIEW
+        or not invoice.decisions
+        or row.code not in invoice.decisions[-1].reason_codes
+    ):
+        raise FormError("This exception is not active on an invoice awaiting review.")
+    if (
+        row.code
+        in {
+            "TAX_REVIEW_REQUIRED",
+            "ACCOUNTING_PERIOD_REVIEW",
+            "ACCOUNTING_TREATMENT_REVIEW",
+            "BANK_ACCOUNT_MISMATCH",
+            "BANK_DETAILS_CHANGED",
+            "PROMPT_INJECTION",
+            "HIGH_PAYMENT_RISK",
+            "UNUSUAL_PAYMENT_METHOD",
+            "VENDOR_BLOCKED",
+        }
+        and owner != "Finance"
+    ):
+        raise FormError("Tax and payment-security exceptions must retain Finance ownership.")
+    before = {
+        "owner": row.owner,
+        "status": row.status,
+        "assigned_to": row.assigned_to,
+        "reason": row.resolution_reason,
+    }
+    recheck = form.get("recheck") == "yes" or status == "ready_for_recheck"
+    row.owner, row.status = owner, "ready_for_recheck" if recheck else status
+    row.assigned_to, row.resolution_reason = assigned or None, reason
+    audit.record(
+        session,
+        action="exception.updated",
+        entity_type="invoice",
+        entity_id=invoice.id,
+        actor=person,
+        data={
+            "code": row.code,
+            "before": before,
+            "after": {
+                "owner": row.owner,
+                "status": row.status,
+                "assigned_to": row.assigned_to,
+                "reason": reason,
+            },
+        },
+    )
+    await session.commit()
+    notice = "exception_saved"
+    if recheck:
+        if invoice.hold_kind:
+            notice = "exception_held"
+        else:
+            previous_count = await session.scalar(
+                select(func.count()).select_from(Decision).where(Decision.invoice_id == invoice.id)
+            )
+            await get_pipeline(request, session).recheck(invoice.id, actor=person, why=reason)
+            current_count = await session.scalar(
+                select(func.count()).select_from(Decision).where(Decision.invoice_id == invoice.id)
+            )
+            notice = (
+                "exception_rechecked"
+                if current_count != previous_count
+                else "exception_unavailable"
+            )
+    return RedirectResponse(
+        f"/invoices/{invoice_id}?notice={notice}#exception-workflow", status_code=303
+    )
+
+
+@router.post("/invoices/{invoice_id}/accounting", response_model=None)
+async def save_invoice_accounting(
+    request: Request, invoice_id: uuid.UUID, session: SessionDep
+) -> Response:
+    form = await request.form()
+    actor, reason = str(form.get("person", "")).strip(), str(form.get("reason", "")).strip()
+    if not actor or len(actor) > 100 or not reason or len(reason) > 2000:
+        raise FormError("Enter your name and a reason for the accounting update.")
+    invoice = await session.scalar(
+        invoice_query().where(Invoice.id == invoice_id).with_for_update()
+    )
+    if (
+        invoice is None
+        or invoice.status not in (InvoiceStatus.PENDING_REVIEW, InvoiceStatus.APPROVED)
+        or invoice.export_batch_id
+        or invoice.payments
+    ):
+        raise FormError(
+            "Accounting details can only change before export on an approved or waiting invoice."
+        )
+    try:
+        chosen = period(str(form.get("posting_period", "")))
+        updates = []
+        for line in invoice.lines:
+            data = dict(line.finance_classification or {})
+            fields = dict(data.get("fields", {}))
+            start, end = (
+                str(
+                    form.get(
+                        f"service_start_{line.line_no}",
+                        fields.get("service_start", {}).get("value") or "",
+                    )
+                ),
+                str(
+                    form.get(
+                        f"service_end_{line.line_no}",
+                        fields.get("service_end", {}).get("value") or "",
+                    )
+                ),
+            )
+            if bool(start) != bool(end):
+                raise ValueError("Enter both service start and end dates, or leave both blank.")
+            if start and date.fromisoformat(end) < date.fromisoformat(start):
+                raise ValueError("Service end must be on or after service start.")
+            for key, value in (
+                ("service_start", start),
+                ("service_end", end),
+                (
+                    "asset_details",
+                    str(
+                        form.get(
+                            f"asset_details_{line.line_no}",
+                            fields.get("asset_details", {}).get("value") or "",
+                        )
+                    )[:500],
+                ),
+            ):
+                if value != (fields.get(key, {}).get("value") or ""):
+                    fields[key] = {"value": value or None, "source": "person", "evidence": reason}
+            data["fields"] = fields
+            data["review_reasons"] = [
+                r
+                for r in data.get("review_reasons", [])
+                if not (
+                    r.startswith("Missing ")
+                    and fields.get(r.removeprefix("Missing ").replace(" ", "_"), {}).get("value")
+                )
+            ]
+            line.finance_classification = data
+            treatment = str(form.get(f"treatment_{line.line_no}", ""))
+            if treatment not in ("", "expense", "prepayment", "asset"):
+                raise ValueError("Choose a valid accounting treatment.")
+            if treatment == "prepayment" and (not start or not end):
+                raise ValueError("Prepayment confirmation needs service start and end dates.")
+            if treatment == "asset" and not fields.get("asset_details", {}).get("value"):
+                raise ValueError("Asset confirmation needs asset details.")
+            updates.append((line.line_no, treatment))
+    except ValueError as exc:
+        raise FormError(str(exc)) from exc
+    before = dict((invoice.additional_info or {}).get("accounting", {}))
+    invoice.additional_info = {
+        **(invoice.additional_info or {}),
+        "accounting": {
+            **before,
+            "posting_period": chosen,
+            "posting_reason": reason,
+            "updated_by": actor,
+        },
+    }
+    await check_accounting(session, invoice)
+    current = dict(invoice.additional_info["accounting"])
+    resolutions = dict(current.get("resolutions", {}))
+    for number, treatment in updates:
+        if treatment:
+            row = next(r for r in current["lines"] if r["line_no"] == number)
+            resolutions[str(number)] = {
+                "treatment": treatment,
+                "reason": reason,
+                "actor": actor,
+                "fingerprint": row["fingerprint"],
+            }
+    current["resolutions"] = resolutions
+    invoice.additional_info = {**invoice.additional_info, "accounting": current}
+    audit.record(
+        session,
+        action="invoice.accounting_updated",
+        entity_type="invoice",
+        entity_id=invoice.id,
+        actor=actor,
+        data={"before": before, "after": current, "note": reason},
+    )
+    if invoice.status == InvoiceStatus.APPROVED:
+        invoice.status = InvoiceStatus.PENDING_REVIEW
+        session.add(
+            ReviewTask(
+                invoice_id=invoice.id,
+                decision_id=invoice.decisions[-1].id,
+                status=ReviewStatus.OPEN,
+            )
+        )
+    await session.commit()
+    notice = "exception_held" if invoice.hold_kind else "exception_rechecked"
+    if not invoice.hold_kind:
+        await get_pipeline(request, session).recheck(invoice.id, actor=actor, why=reason)
+    return RedirectResponse(
+        f"/invoices/{invoice_id}?notice={notice}#accounting-review", status_code=303
+    )
 
 
 @router.get("/invoices/{invoice_id}/steps", response_class=HTMLResponse)
@@ -428,6 +682,16 @@ async def save_accounts(request: Request, invoice_id: uuid.UUID, session: Sessio
             changes[line.description] = [line.gl_account_code, chosen]
             line.gl_account_code = chosen
             line.gl_source = "person"
+            if line.finance_classification:
+                classification = dict(line.finance_classification)
+                fields = dict(classification.get("fields", {}))
+                fields["gl_account"] = {
+                    "value": chosen,
+                    "source": "person",
+                    "evidence": f"Confirmed by {person}",
+                }
+                classification["fields"] = fields
+                line.finance_classification = classification
         if changes:
             audit.record(
                 session,

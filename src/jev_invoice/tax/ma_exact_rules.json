@@ -1,0 +1,390 @@
+{
+  "letter copier paper, case of ten reams": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "a4 writing pads, pack of 5": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "blue ballpoint pens, box of 12": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "whiteboard markers, set of 4": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "office stationery and filing supplies": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "manila file folders, pack of 50": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "managed hosting service only, no software licence or access, october 2026": {
+    "section": "computer-services",
+    "rate": "0"
+  },
+  "it consultancy services only, no software or equipment, q4 2026": {
+    "section": "computer-services",
+    "rate": "0"
+  },
+  "business laptop, 16gb ram, 512gb ssd": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "rack server, 2u, 128gb ram": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "desktop workstation for analytics team": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "conference-room computer": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "compact office desktop": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "business laptop, 32gb ram, 1tb ssd": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "network server for internal operations": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "commercial office premises rent only, october 2026": {
+    "section": "sales-tax",
+    "rate": "0"
+  },
+  "legal services, october 2026": {
+    "section": "personal-or-professional-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-007-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-007-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-007-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-007-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-007-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-007-06 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-007-07 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "paid social advertising campaign - professional service only, no goods supplied": {
+    "section": "advertising-services",
+    "rate": "0"
+  },
+  "brand development and creative design - professional service only, no goods supplied": {
+    "section": "advertising-services",
+    "rate": "0"
+  },
+  "marketing campaign strategy services - professional service only, no goods supplied": {
+    "section": "advertising-services",
+    "rate": "0"
+  },
+  "business telephone service only, october 2026": {
+    "section": "-telecommunications-",
+    "rate": "6.25"
+  },
+  "desktop stapler": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "black toner cartridge, high yield": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "staples, box of 5000": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "shipping labels, pack of 100": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "document binders": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "backup storage server": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "development laptop, 32gb ram": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "desktop workstation, 64gb ram": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "small-form-factor workstation": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "freight delivery for office equipment, shipment nw-016-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-016-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-016-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-016-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-016-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "printer maintenance kit": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "analytics workstation, 128gb ram": {
+    "section": "sales-tax",
+    "rate": "6.25"
+  },
+  "express courier shipment, shipment nw-025-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-025-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-025-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-025-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-025-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-034-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-034-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-034-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-034-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-034-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-043-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-043-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-043-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-043-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-043-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-043-06 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-043-07 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-043-08 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-043-09 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-052-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-052-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-052-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-052-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-052-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-052-06 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-052-07 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-052-08 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-052-09 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-061-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-061-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-061-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-061-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-070-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-070-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-070-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-070-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-070-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-079-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-079-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-079-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-079-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-079-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-088-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-088-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-088-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "freight delivery for office equipment, shipment nw-088-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-088-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-097-01 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-097-02 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-097-03 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-097-04 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "document delivery and postage, shipment nw-097-05 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  },
+  "express courier shipment, shipment nw-097-06 - carrier transport after sale, actual cost": {
+    "section": "shipping-and-transportation-services",
+    "rate": "0"
+  }
+}

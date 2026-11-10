@@ -22,9 +22,6 @@ from decimal import Decimal
 
 from jev_invoice.domain.enums import GLAccountType, PurchaseOrderStatus, VendorStatus
 
-COMPANY_NAME = "Northwind Analytics Inc"
-COMPANY_CURRENCY = "USD"
-
 
 @dataclass(frozen=True)
 class GLAccountSeed:

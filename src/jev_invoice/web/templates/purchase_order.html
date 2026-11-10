@@ -14,14 +14,16 @@
       <span>issued {{ po.issued_date | date }}</span>
       <span class="tag tag--{{ tone }}">{{ label }}</span></p>
   </div>
-  <p class="invoice-head__total">{{ po.total_amount | money(po.currency) }}</p>
+  <p class="invoice-head__total">{{ (po.grand_total if po.grand_total is not none else po.total_amount) | money(po.currency) }}<span class="small muted">{{ "including tax" if po.grand_total is not none else "before tax" }}</span></p>
 </header>
 
 {% if notice %}<p class="banner banner--ok" role="status">{{ notice }}</p>{% endif %}
 {% if error %}<p class="banner banner--error" role="alert">{{ error }}</p>{% endif %}
 
 <dl class="figures">
-  <div><dt>Ordered</dt><dd>{{ po.total_amount | money(po.currency) }}</dd></div>
+  <div><dt>Subtotal before tax ($)</dt><dd>{{ po.total_amount | money }}</dd></div>
+  <div><dt>Tax ($)</dt><dd>{{ po.tax_amount | money if po.tax_amount is not none else 'Not entered for every line' }}</dd></div>
+  <div><dt>Total including tax ($)</dt><dd>{{ po.grand_total | money if po.grand_total is not none else 'Tax information required' }}</dd></div>
   {% if po.needs_receiving %}
   <div><dt>Received so far</dt><dd>{{ s.received_value | money(po.currency) }}</dd></div>
   {% else %}
@@ -39,15 +41,19 @@
       <table class="ledger ledger--compact">
         <thead><tr>
           <th scope="col">Line</th><th scope="col" class="num">Ordered</th><th scope="col" class="num">Unit price</th>
-          <th scope="col">Account</th>{% if po.needs_receiving %}<th scope="col" class="num">Received</th>{% endif %}
+          <th scope="col" class="num">Amount before tax ($)</th><th scope="col" class="num">Tax rate (%)</th><th scope="col">Account</th>{% if po.needs_receiving %}<th scope="col" class="num">Received</th>{% endif %}
           {% if receivable %}<th scope="col" class="num">Receive now</th>{% endif %}
         </tr></thead>
         <tbody>
           {% for item in s.lines %}
           <tr>
-            <td>{{ item.line.description }}</td>
+            <td>{{ item.line.description }}
+              {% if item.line.finance_details %}<details><summary class="small">Accounting details</summary>
+                <dl>{% for key, value in item.line.finance_details.items() %}<dt>{{ key | replace('_', ' ') | capitalize }}</dt><dd>{{ ('Yes' if value else 'No') if value is sameas true or value is sameas false else value }}</dd>{% endfor %}</dl>
+              </details>{% endif %}</td>
             <td class="num">{{ item.line.quantity | qty }}</td>
             <td class="num">{{ item.line.unit_price | money }}</td>
+            <td class="num">{{ item.line.net_amount | money }}</td><td class="num">{{ item.line.tax_rate_percent if item.line.tax_rate_percent is not none else 'Not entered' }}</td>
             <td>{{ item.line.gl_account_code or "" }}</td>
             {% if po.needs_receiving %}<td class="num">{{ item.received | qty }}{% if item.outstanding == 0 %} <span class="tag tag--ok">all</span>{% endif %}</td>{% endif %}
             {% if receivable %}

@@ -5,7 +5,7 @@ PolicyOutcome   what the policy decided (action, band, reasons), before provenan
 DecisionOutcome the outcome plus everything needed to audit or replay it
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +13,7 @@ from jev_invoice.domain.enums import ActionBand, DecisionAction, ReasonCode
 from jev_invoice.domain.invoice import CheckFinding
 
 JevDocumentType = Literal["invoice", "credit_note", "statement", "quote", "receipt", "other"]
-JevStatus = Literal["ok", "not_configured", "unavailable"]
+JevStatus = Literal["ok", "not_configured", "unavailable", "not_run"]
 
 
 class JevAnswers(BaseModel):
@@ -40,6 +40,7 @@ class PolicyOutcome(BaseModel):
 
 class DecisionOutcome(PolicyOutcome):
     findings: list[CheckFinding] = Field(default_factory=list)
+    exception_routing: list[dict[str, Any]] = Field(default_factory=list)
     jev_status: JevStatus
     jev: JevAnswers | None = None
     jev_model: str | None = None

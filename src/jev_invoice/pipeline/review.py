@@ -7,10 +7,12 @@ from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from jev_invoice.accounting.controls import AccountingInputError, check_accounting
 from jev_invoice.core import audit
 from jev_invoice.core.errors import AppError, ConflictError, NotFoundError
 from jev_invoice.db.models import Invoice, ReviewTask
 from jev_invoice.domain.enums import ActionBand, InvoiceStatus, ReviewStatus
+from jev_invoice.pipeline.exceptions import record_review_disposition
 
 
 class NoteRequiredError(AppError):
@@ -67,6 +69,13 @@ class ReviewService:
             raise ConflictError(
                 f"Review task is already {task.status}", details={"task_id": str(task_id)}
             )
+        if approve:
+            from jev_invoice.ingest.coverage import require_complete_document
+
+            require_complete_document(task.invoice)
+            accounting_findings = await check_accounting(self._session, task.invoice)
+            if accounting_findings:
+                raise AccountingInputError(accounting_findings[0].message)
         note = note.strip() if note else None
         if approve and task.decision.band == ActionBand.BLOCK and not note:
             raise NoteRequiredError(
@@ -91,6 +100,9 @@ class ReviewService:
                 "note": note,
                 **({"warnings": warnings} if warnings else {}),
             },
+        )
+        await record_review_disposition(
+            self._session, task.invoice, approve=approve, actor=reviewer, note=note
         )
         await self._session.commit()
         return task

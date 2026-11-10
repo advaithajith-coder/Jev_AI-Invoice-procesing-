@@ -15,6 +15,7 @@ from jev_invoice.config import Settings
 from tests.fakes import acme_invoice_fields, install_fakes, wire_answers
 
 PERSON = {"person": "Maya"}
+NO_PO_SIGN_OFF = {"NON_PO_APPROVAL_REQUIRED", "GL_CODING_REVIEW"}
 
 
 def _days_ago(days: int) -> str:
@@ -28,6 +29,17 @@ def _approve(app: FastAPI, client: TestClient, settings: Settings, **overrides: 
     body = client.post(
         "/api/v1/invoices", files={"file": (f"{number}.txt", number.encode(), "text/plain")}
     ).json()
+    if body["status"] == "pending_review":
+        # A bill without a PO (Meridian) needs a budget owner's sign-off and Finance to
+        # confirm its coding: approve it the way a person would, then check Payables.
+        assert set(body["decision"]["reason_codes"]) <= NO_PO_SIGN_OFF, body["decision"]
+        tasks = client.get("/api/v1/review").json()
+        task = next(t for t in tasks if t["invoice"]["id"] == body["id"])
+        approved = client.post(
+            f"/api/v1/review/{task['id']}/approve", json={"reviewer": "maya", "note": "Budget OK"}
+        )
+        assert approved.json()["invoice"]["status"] == "approved", approved.text
+        return str(body["id"])
     assert body["status"] == "approved", body["decision"]["reason_codes"]
     return str(body["id"])
 
@@ -56,7 +68,7 @@ def test_empty_page(client: TestClient) -> None:
     page = client.get("/payables").text
 
     assert "Nothing owed" in page
-    assert 'aria-current="page">Payables</a>' in page
+    assert 'aria-current="page">Dashboard</a>' in page
     for removed in ("Payment due schedule", "Received, not yet billed", "Discounts to keep"):
         assert removed not in page
 
@@ -177,3 +189,37 @@ def test_each_tab_has_a_totals_row(
     assert "2,126.52 if paid on these dates, keeping 21.48 in discounts" in open_totals
     assert "1 invoice<" in paid_totals and "USD 1,074.00" in paid_totals
     assert 'class="totals"' not in held  # an empty tab has no totals row
+
+
+def test_dashboard_summary_keeps_held_balances_out_of_payment_plan(
+    app: FastAPI, client: TestClient, seeded_settings: Settings
+) -> None:
+    from decimal import Decimal
+
+    from jev_invoice.payables.overview import overview
+    from jev_invoice.web.payables import dashboard_summary
+
+    _meridian(app, client, seeded_settings, invoice_number="DB-LATE", invoice_date=_days_ago(50))
+    _meridian(app, client, seeded_settings, invoice_number="DB-WEEK", invoice_date=_days_ago(10))
+    held = _meridian(
+        app, client, seeded_settings, invoice_number="DB-HOLD", invoice_date=_days_ago(40)
+    )
+    client.post(
+        f"/invoices/{held}/hold",
+        data={**PERSON, "kind": "hold", "reason": "Supplier clarification"},
+    )
+
+    async def summary() -> dict[str, Any]:
+        async with app.state.session_factory() as session:
+            return dashboard_summary(await overview(session))
+
+    assert client.portal is not None
+    metrics = client.portal.call(summary)
+    assert metrics["outstanding"] == Decimal("3222")
+    assert metrics["overdue"] == Decimal("1074")
+    assert metrics["upcoming"] == Decimal("1074")
+    assert metrics["held"] == Decimal("1074")
+    assert sum(bucket["amount"] for bucket in metrics["buckets"]) == metrics["outstanding"]
+    page = client.get("/payables").text
+    assert "Payment outlook" in page and "Needs attention" in page
+    assert "Outstanding balance" in page and "Invoice register" in page

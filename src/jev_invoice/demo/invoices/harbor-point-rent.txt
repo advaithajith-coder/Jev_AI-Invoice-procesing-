@@ -9,8 +9,9 @@ Due date: {{date+2}}
 Tenant: Northwind Analytics Inc
 Premises: Suite 400, 88 Harbor Point Blvd
 
-Office rent, {{month}}                                      4,500.00
+Commercial office premises rent only, {{month}}                                      4,500.00
 
+Sales tax (not taxable)                                         0.00
 Total due                                                 USD 4,500.00
 
 Please pay by ACH.

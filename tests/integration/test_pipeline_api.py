@@ -99,7 +99,7 @@ def test_clean_invoice_is_auto_approved(client: TestClient, pipeline: Pipeline) 
     assert body["total"] == "1074.00"
     assert body["bank_account_last4"] == "6819"
     assert body["lines"][0]["description"].startswith("Toner")
-    assert body["extraction"]["prompt_version"] == "x5"
+    assert body["extraction"]["prompt_version"] == "x7"
     assert client.get("/api/v1/review").json() == []
 
 
@@ -114,13 +114,15 @@ def test_raw_bank_account_never_leaves_the_api(client: TestClient, pipeline: Pip
 def test_same_file_twice_is_processed_once(client: TestClient, pipeline: Pipeline) -> None:
     pipeline.script(acme_invoice_fields(), jev=[wire_answers()])
     first = _upload(client).json()
+    calls_before_duplicate = (len(pipeline.llm.calls), len(pipeline.jev.requests))
 
     second = _upload(client, name="renamed.txt")
 
     assert second.status_code == 200
     assert second.json()["already_received"] is True
     assert second.json()["id"] == first["id"]
-    assert len(pipeline.llm.calls) == 1 and len(pipeline.jev.requests) == 1
+    assert calls_before_duplicate[0] == 1
+    assert (len(pipeline.llm.calls), len(pipeline.jev.requests)) == calls_before_duplicate
 
 
 def test_pdf_and_email_uploads(client: TestClient, pipeline: Pipeline) -> None:
@@ -171,12 +173,15 @@ def test_jev_fraud_signal_blocks_even_with_clean_data(
     assert decision["reason_codes"] == ["BANK_DETAILS_CHANGED"]
 
 
-def test_no_purchase_order_routes_for_approval(client: TestClient, pipeline: Pipeline) -> None:
+def test_non_po_and_untrusted_coding_require_both_approvals(
+    client: TestClient, pipeline: Pipeline
+) -> None:
     pipeline.script(acme_invoice_fields(po_reference=None), jev=[wire_answers()])
 
     decision = _upload(client).json()["decision"]
 
-    assert (decision["action"], decision["band"]) == ("route_approval", "confirm")
+    assert (decision["action"], decision["band"]) == ("hold_review", "human")
+    assert {"NON_PO_APPROVAL_REQUIRED", "GL_CODING_REVIEW"} <= set(decision["reason_codes"])
 
 
 def test_without_jev_every_invoice_goes_to_review(client: TestClient, pipeline: Pipeline) -> None:
@@ -258,8 +263,14 @@ def test_reviewer_approves_and_audit_trail_is_complete(
         "invoice.received",
         "invoice.extracted",
         "decision.made",
+        "exception.opened",
+        "exception.opened",
+        "exception.opened",
         "review.opened",
         "review.approved",
+        "exception.disposition",
+        "exception.disposition",
+        "exception.disposition",
     ]
 
 

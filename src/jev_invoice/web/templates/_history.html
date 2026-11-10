@@ -5,11 +5,18 @@
     <span class="timeline__when muted" title="{{ event.occurred_at }}">{{ event.occurred_at | ago }}</span>
     <span class="timeline__what">{{ AUDIT.get(event.action, event.action) }}</span>
     <span class="timeline__who muted">{{ event.actor }}</span>
+    {% if event.action == 'correction.reused' %}<p class="timeline__note">Line {{ event.data.line_no }} · {{ event.data.field | replace('_', ' ') }}: {{ event.data.value }} · <a href="/corrections">Saved correction</a></p>{% endif %}
     {% if event.data.get("old_last4") is not none or event.data.get("new_last4") %}
       <p class="timeline__note">Account ending {{ event.data.get("old_last4") or "none" }} changed to ending {{ event.data.get("new_last4") }}</p>
     {% endif %}
     {% if event.data.get("changes") %}
       <p class="timeline__note">{% for field, (old, new) in event.data["changes"].items() %}{{ field | replace("_", " ") }}: {{ old }} to {{ new }}{% if not loop.last %}; {% endif %}{% endfor %}</p>
+    {% endif %}
+    {% if event.action.startswith("exception.") %}
+      <p class="timeline__note">{{ event.data.get("code", "") | replace("_", " ") | capitalize }}{% if event.data.get("owner") %}: {{ event.data.owner }}{% endif %}</p>
+      {% if event.data.get("before") and event.data.get("after") %}
+      <p class="timeline__note">Owner: {{ event.data.before.owner }} to {{ event.data.after.owner }}. Status: {{ event.data.before.status | replace("_", " ") }} to {{ event.data.after.status | replace("_", " ") }}. Assigned to: {{ event.data.after.assigned_to or 'No named person' }}.<br>{{ event.data.after.reason }}</p>
+      {% elif event.data.get("reason") %}<p class="timeline__note">{{ event.data.reason }}</p>{% endif %}
     {% endif %}
     {% if event.data.get("note") %}<p class="timeline__note">“{{ event.data["note"] }}”</p>{% endif %}
   </li>

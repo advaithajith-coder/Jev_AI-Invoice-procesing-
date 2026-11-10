@@ -1,0 +1,16 @@
+OLD MILL STATIONERS
+12 Mill Lane, Lowell MA 01852
+
+INVOICE OM-8812
+Invoice date: {{date-2}}
+Terms: net 30
+Bill to: Northwind Analytics Inc
+
+Item                                              Qty   Unit price      Amount
+Desk organizer set, black mesh                     10        14.00      140.00
+
+Subtotal                                                               140.00
+Massachusetts sales tax 6.25%                                            8.75
+Total due (USD)                                                         148.75
+
+Remit to: Routing 011000028 Account 3300112244

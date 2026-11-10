@@ -16,6 +16,7 @@
     <p class="invoice-head__meta">
       <span>{{ invoice.invoice_number or "No invoice number read" }}</span>
       {% if invoice.invoice_date %}<span>{{ invoice.invoice_date | date }}</span>{% endif %}
+      {% if invoice.due_date %}<span>Due {{ invoice.due_date | date }}</span>{% endif %}
       {% if is_credit_note %}<span class="tag tag--confirm">Credit note</span>{% endif %}
     </p>
     {{ rail(invoice, big=true) }}
@@ -60,7 +61,11 @@
 </section>
 {% endif %}
 
-<div class="split">
+{% include "_invoice_attention.html" %}
+
+<div class="split invoice-journey"><section class="journey-timeline" aria-label="Invoice journey">    <div data-steps data-live-url="/invoices/{{ invoice.id }}/steps">
+      {% include "_steps.html" %}
+    </div></section>
   <section class="document" aria-labelledby="doc-title">
     <div class="document__head">
       <h2 id="doc-title">Original</h2>
@@ -78,12 +83,43 @@
     <p class="muted small">{{ invoice.original_filename }}, received {{ invoice.received_at | ago }}{% if invoice.source == "email" and invoice.sender_email %} from {{ invoice.sender_email }}{% endif %}</p>
 
   </section>
-
+</div>
+{#- The details sit below the journey and the original, full width. Kept outside the
+    split so the pinned original stops at the end of the journey instead of riding
+    over the review sections. -#}
   <div class="details">
-    <div data-steps data-live-url="/invoices/{{ invoice.id }}/steps">
-      {% include "_steps.html" %}
-    </div>
-
+    {% if invoice.lines or comparison.invoice_findings %}
+    {% include "_review_evidence.html" %}
+    {% endif %}
+    {% set tax_review = (invoice.additional_info or {}).get('tax_review') %}
+    <details class="invoice-disclosure" id="tax-review-title" {% if open_task and tax_review and tax_review.messages %}open{% endif %}>
+      <summary>Massachusetts tax verification{% if tax_review and not tax_review.messages %} <span class="tag tag--ok">Passed</span>{% endif %}</summary>
+      {% if tax_review %}
+      <p><strong>{{ tax_review.status }}</strong> · {{ tax_review.jurisdiction }}</p>
+      <dl class="fields">
+        <dt>Taxable subtotal</dt><dd>{{ tax_summary.taxable_subtotal | money(invoice.currency) if tax_summary.taxable_subtotal is not none else 'Requires review' }}</dd>
+        <dt>Expected tax</dt><dd>{{ tax_review.expected_tax or 'Requires review' }}</dd>
+        <dt>Supplier tax</dt><dd>{{ tax_review.invoice_tax or 'Not provided' }}</dd>
+        <dt>Difference</dt>
+        <dd>{% if tax_summary.difference is none %}Unavailable{% else %}
+          {{ tax_summary.difference | abs | money(invoice.currency) }}{% if tax_summary.difference > 0 %} more than expected{% elif tax_summary.difference < 0 %} less than expected{% endif %}
+        {% endif %}</dd>
+        <dt>Calculated invoice rate</dt><dd>{{ tax_review.effective_invoice_rate ~ '%' if tax_review.effective_invoice_rate else 'Mixed or unknown basis' }}<span class="sub">Calculated from totals; not a transcribed tax rate.</span></dd>
+      </dl>
+      {% if tax_review.accepted_line_count is defined %}<p>{{ tax_review.accepted_line_count }} accepted lines · {{ tax_review.unresolved_line_count }} unresolved lines.</p>{% if tax_review.unresolved_line_count and tax_review.accepted_lines_tax is not none %}<p>Tax on accepted lines only: {{ tax_review.accepted_lines_tax }}<span class="sub">{{ tax_review.accepted_lines_tax_note }}</span></p>{% endif %}{% endif %}
+      {% if tax_review.messages %}<ul>{% for message in tax_review.messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
+      {% for row in tax_review.lines %}
+      <details class="action"><summary>{{ row.line_no }}. {{ row.description }} — {{ row.expected_rate ~ '%' if row.expected_rate is not none else 'Finance review' }}</summary>
+        <p>{{ row.match }}</p>{% if row.correction %}<p>Evidence: {{ row.evidence }}<span class="sub"><a href="/corrections">Saved correction</a> · Validated by {{ row.correction.validated_by }} · Expires {{ row.correction.valid_until }}</span></p>{% endif %}
+        {% if row.rejection_reasons %}<ul>{% for reason in row.rejection_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
+        {% if row.jev_treatment %}<p>JEV recommendation: {{ row.jev_treatment | replace('_', ' ') }} · {{ (row.confidence * 100) | round | int }}% confidence.</p><p>Evidence: {{ row.evidence }}</p>{% endif %}
+        <p>{{ row.reviewer_action or 'Finance must confirm the applicable treatment.' }}</p>
+      </details>
+      {% endfor %}
+      <p class="muted small">{{ tax_review.scope }} Policy {{ tax_review.version }}.</p>
+      {% else %}<p class="muted">Not checked yet. Tax verification runs during processing or recheck.</p>{% endif %}
+      <p><a href="/tax-rules">View Massachusetts tax rules and sources</a></p>
+    </details>
     {% if is_credit_note %}
     <section class="credit-note" aria-labelledby="credit-title">
       <h2 id="credit-title">Credit note</h2>
@@ -153,104 +189,49 @@
     </section>
     {% endif %}
 
-    {% if not is_credit_note and invoice.total is not none %}
-    {% set cur = invoice.currency %}
-    <section class="payment" aria-labelledby="payment-title">
-      <h2 id="payment-title">Payment</h2>
-      <dl class="fields">
-        <dt>Billed</dt>
-        <dd>{{ balance.billed | money(cur) }}{% if invoice.amount_paid %} <span class="muted">after a {{ invoice.amount_paid | money(cur) }} deposit</span>{% endif %}</dd>
-        {% for credit in invoice.credits %}
-        <dt>Credit {{ credit.number }}</dt>
-        <dd>-{{ credit.amount | money(cur) }}{% if credit.credit_note_id %} <a class="small" href="/invoices/{{ credit.credit_note_id }}">credit note</a>{% endif %}{% if credit.reason %} <span class="muted">{{ credit.reason }}</span>{% endif %}</dd>
-        {% endfor %}
-        {% if balance.withheld %}
-        <dt>Short-pay</dt>
-        <dd>-{{ balance.withheld | money(cur) }} <span class="muted">{{ invoice.withheld_reason }}</span></dd>
-        {% endif %}
-        {% if balance.paid %}<dt>Paid</dt><dd>-{{ balance.paid | money(cur) }}</dd>{% endif %}
-        {% if balance.discount %}<dt>Discount kept</dt><dd>-{{ balance.discount | money(cur) }}</dd>{% endif %}
-        <dt>{{ "Balance to pay" if balance.settled else "Amount to pay" }}</dt>
-        <dd class="strong">{{ balance.balance | money(cur) }}{% if invoice.fx_rate %} <span class="muted">≈ {{ base_currency }} {{ invoice.in_base(balance.balance) | money }}</span>{% endif %}{% if balance.state == "paid" %} <span class="tag tag--ok">paid in full</span>{% endif %}</dd>
-        {% if invoice.fx_rate %}
-        <dt>Exchange rate</dt>
-        <dd>1 {{ cur }} = {{ invoice.fx_rate | rate }} {{ base_currency }} <span class="muted">({{ invoice.fx_rate_source }}, {{ invoice.fx_rate_date | date }})</span></dd>
-        {% endif %}
-        {% if terms and balance.balance %}
-        <dt>Pay by</dt>
-        <dd>{{ terms.pay_by | date }} <span class="muted">(agreed terms: {{ terms.label }})</span></dd>
-        {% if terms.asks_earlier %}
-        <dt>Invoice asks for</dt>
-        <dd>{{ terms.printed_due | date }} <span class="tag tag--human">earlier than the agreed terms</span></dd>
-        {% endif %}
-        {% endif %}
-      </dl>
-      {% if terms and terms.discount_by and balance.balance and not balance.discount %}
-      {% set open = terms.discount_by >= today %}
-      <p class="discount{{ '' if open else ' discount--missed' }}">
-        <b>{{ terms.discount_pct.normalize() }}% early-payment discount</b>
-        {%- if terms.discount_amount is not none %} ({{ terms.discount_amount | money(cur) }}){% endif %}
-        {% if open %}if paid by {{ terms.discount_by | date }}.{% else %}missed: it ended {{ terms.discount_by | date }}.{% endif %}
-      </p>
-      {% endif %}
+  </div>
+{% if invoice.lines or exceptions %}
+<details class="invoice-disclosure" id="accounting-details" {% if (open_task and decision and ('ACCOUNTING_PERIOD_REVIEW' in decision.reason_codes or 'ACCOUNTING_TREATMENT_REVIEW' in decision.reason_codes)) or error %}open{% endif %}>
+  <summary id="accounting-review-title">Accounting period and treatment</summary>
+  {% include "_accounting_review.html" %}
+</details>
+{% endif %}
 
-      {% if invoice.payments %}
-      <div class="table-wrap">
-        <table class="ledger ledger--compact payments">
-          <caption class="sr-only">Payments recorded</caption>
-          <thead><tr><th scope="col">Paid on</th><th scope="col">How</th><th scope="col" class="num">Amount</th><th scope="col">Recorded by</th></tr></thead>
-          <tbody>
-            {% for p in invoice.payments %}
-            <tr><td>{{ p.paid_on | date }}</td>
-              <td>{{ PAYMENT_METHODS.get(p.method, p.method) }}{% if p.reference %} <span class="typed small">{{ p.reference }}</span>{% endif %}</td>
-              <td class="num">{{ p.amount | money }}{% if p.discount_taken %}<span class="sub">+ {{ p.discount_taken | money }} discount</span>{% endif %}</td>
-              <td class="muted">{{ p.recorded_by }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
+<details class="invoice-disclosure" id="processing-details" {% if not st.finished or request.query_params.get('notice') == 'accounts_saved' or error %}open{% endif %}>
+  <summary>Processing details and line coding</summary>
 
-      {% if payable and balance.balance %}
-        {% if invoice.hold_kind %}
-        <p class="muted small">Payment is blocked while the invoice is {{ "disputed" if invoice.hold_kind == "dispute" else "on hold" }}.</p>
-        {% else %}
-        {% set f = form if form.get('_form') == 'payment' else {} %}
-        <details class="action" {% if f %}open{% endif %}>
-          <summary>Record a payment</summary>
-          <form method="post" action="/invoices/{{ invoice.id }}/payment" class="action__form" data-payment>
-            <input type="hidden" name="_form" value="payment">
-            <div class="field-row">
-              <div class="field"><label for="paid-on">Paid on</label>
-                <input id="paid-on" name="paid_on" type="date" value="{{ f.get('paid_on', today.isoformat()) }}" max="{{ today.isoformat() }}" required></div>
-              <div class="field"><label for="pay-amount">Amount paid <span class="muted">{{ cur }}</span></label>
-                <input id="pay-amount" name="amount" type="text" inputmode="decimal" value="{{ f.get('amount', '%.2f' | format(plan.amount)) }}" required></div>
-            </div>
-            {% if plan.discount %}
-            <div class="field field--check"><label><input name="take_discount" type="checkbox" value="1" {% if not f or f.get('take_discount') %}checked{% endif %} data-discount="{{ '%.2f' | format(plan.discount) }}" data-full="{{ '%.2f' | format(balance.balance) }}">
-              Keep the {{ plan.discount | money(cur) }} early-payment discount (paying by {{ terms.discount_by | date }})</label></div>
-            {% endif %}
-            <div class="field-row">
-              <div class="field"><label for="pay-method">How</label>
-                <select id="pay-method" name="method">
-                  {% for key, label in PAYMENT_METHODS.items() %}<option value="{{ key }}" {% if f.get('method') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
-                </select></div>
-              <div class="field"><label for="pay-ref">Reference <span class="muted">check or transfer number</span></label>
-                <input id="pay-ref" name="reference" type="text" maxlength="100" value="{{ f.get('reference', '') }}"></div>
-            </div>
-            {{ person_field(reviewer, "person-payment") }}
-            <button class="button button--primary" type="submit">Record payment</button>
-            <p class="muted small">Record a payment once your bank has sent it. The money itself moves in your bank or accounting system.</p>
-          </form>
-        </details>
-        {% endif %}
-      {% endif %}
+
+    {% if invoice.lines %}
+    <section aria-labelledby="finance-classification-title">
+      <h2 id="finance-classification-title">Line accounting recommendations</h2>
+      {% for line in invoice.lines if line.finance_classification %}
+      {% set classification = line.finance_classification %}
+      <details class="action">
+        <summary>{{ line.line_no }}. {{ line.description }}{% if classification.review_reasons %} <span class="tag">Needs review</span>{% endif %}</summary>
+        <dl class="fields">
+          {% for key, field in classification.fields.items() %}
+          <dt>{{ key | replace('_', ' ') | capitalize }}</dt>
+          <dd>{{ ('Yes' if field.value else 'No') if field.value is sameas true or field.value is sameas false else (field.value if field.value is not none else 'Insufficient evidence') }}
+            <span class="sub">{{ {'po': 'From PO', 'ai': 'Jev suggestion', 'vendor': 'Vendor default', 'suspense': 'Needs coding', 'validated_correction': 'Validated recurring-purchase correction', 'learned_correction': 'Learned from reviewer corrections', 'person': 'Reviewer confirmed', 'unknown': 'Not determined'}.get(field.source, field.source) }}{% if field.confidence is not none and field.confidence is defined %} · {{ (field.confidence * 100) | round | int }}% confidence{% endif %}</span>
+            {% if field.correction_id %}<span class="sub"><a href="/corrections">Saved correction</a> · Validated by {{ field.validated_by }} · Expires {{ field.valid_until }}</span>{% endif %}{% if field.evidence %}<span class="sub">Evidence: {{ field.evidence }}</span>{% endif %}
+            {% for source_id in field.source_invoice_ids or [] %}<a class="sub" href="/invoices/{{ source_id }}">Source invoice {{ loop.index }}</a>{% endfor %}
+            {% if field.evidence_support is defined and field.evidence_support %}<span class="sub">Evidence support: {{ field.evidence_support }}{% if field.evidence_support_confidence is not none %} · {{ (field.evidence_support_confidence * 100) | round | int }}% confidence{% endif %}</span>{% endif %}
+            {% if field.value is none and field.suggestion is defined and field.suggestion and field.suggestion != 'unknown' %}<span class="sub">Unconfirmed suggestion: {{ field.suggestion | replace('_', ' ') }} · Needs review</span>{% endif %}
+            {% if field.rejection_reason is defined and field.rejection_reason %}<span class="sub">Review reason: {{ field.rejection_reason | replace('_', ' ') }}</span>{% endif %}
+          </dd>
+          {% endfor %}
+        </dl>
+        {% if classification.review_reasons %}<ul>{% for reason in classification.review_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
+      </details>
+      {% endfor %}
     </section>
+    {% include "_corrections.html" %}
     {% endif %}
+</details>
 
     {% if not is_credit_note and invoice.status in ("extracted", "pending_review", "approved", "exported") and (balance.balance or balance.withheld or invoice.hold_kind) %}
-    <section class="actions" aria-labelledby="actions-title">
-      <h2 id="actions-title">Exceptions</h2>
+    <details class="invoice-disclosure actions" id="actions-title" {% if form.get('_form') in ('hold', 'dispute', 'short_pay', 'credit', 'assign') %}open{% endif %}>
+      <summary>More actions{% if credit_notes %} <span class="tag tag--confirm">{{ credit_notes | length }} supplier credit{{ "" if credit_notes | length == 1 else "s" }} available</span>{% endif %}</summary>
       <p class="muted small">When something is wrong, or you are waiting on someone. Each action goes into the history with your name.</p>
       {% set open_form = form.get('_form') %}
       {% if not invoice.hold_kind %}
@@ -345,11 +326,108 @@
         </form>
       </details>
       {% endif %}
-    </section>
+    </details>
     {% endif %}
 
-    <section aria-labelledby="history-title">
-      <h2 id="history-title">Comments and history</h2>
+
+    {% if not is_credit_note and invoice.total is not none %}
+    {% set cur = invoice.currency %}
+    <details class="invoice-disclosure payment" id="payment-title" {% if payable or form.get('_form') == 'payment' %}open{% endif %}>
+      <summary>Payment</summary>
+      <dl class="fields">
+        <dt>Billed</dt>
+        <dd>{{ balance.billed | money(cur) }}{% if invoice.amount_paid %} <span class="muted">after a {{ invoice.amount_paid | money(cur) }} deposit</span>{% endif %}</dd>
+        {% for credit in invoice.credits %}
+        <dt>Credit {{ credit.number }}</dt>
+        <dd>-{{ credit.amount | money(cur) }}{% if credit.credit_note_id %} <a class="small" href="/invoices/{{ credit.credit_note_id }}">credit note</a>{% endif %}{% if credit.reason %} <span class="muted">{{ credit.reason }}</span>{% endif %}</dd>
+        {% endfor %}
+        {% if balance.withheld %}
+        <dt>Short-pay</dt>
+        <dd>-{{ balance.withheld | money(cur) }} <span class="muted">{{ invoice.withheld_reason }}</span></dd>
+        {% endif %}
+        {% if balance.paid %}<dt>Paid</dt><dd>-{{ balance.paid | money(cur) }}</dd>{% endif %}
+        {% if balance.discount %}<dt>Discount kept</dt><dd>-{{ balance.discount | money(cur) }}</dd>{% endif %}
+        <dt>{{ "Balance to pay" if balance.settled else "Amount to pay" }}</dt>
+        <dd class="strong">{{ balance.balance | money(cur) }}{% if invoice.fx_rate %} <span class="muted">≈ {{ base_currency }} {{ invoice.in_base(balance.balance) | money }}</span>{% endif %}{% if balance.state == "paid" %} <span class="tag tag--ok">paid in full</span>{% endif %}</dd>
+        {% if invoice.fx_rate %}
+        <dt>Exchange rate</dt>
+        <dd>1 {{ cur }} = {{ invoice.fx_rate | rate }} {{ base_currency }} <span class="muted">({{ invoice.fx_rate_source }}, {{ invoice.fx_rate_date | date }})</span></dd>
+        {% endif %}
+        {% if terms and balance.balance %}
+        <dt>Pay by</dt>
+        <dd>{{ terms.pay_by | date }} <span class="muted">(agreed terms: {{ terms.label }})</span></dd>
+        {% if terms.asks_earlier %}
+        <dt>Invoice asks for</dt>
+        <dd>{{ terms.printed_due | date }} <span class="tag tag--human">earlier than the agreed terms</span></dd>
+        {% endif %}
+        {% endif %}
+      </dl>
+      {% if terms and terms.discount_by and balance.balance and not balance.discount %}
+      {% set open = terms.discount_by >= today %}
+      <p class="discount{{ '' if open else ' discount--missed' }}">
+        <b>{{ terms.discount_pct.normalize() }}% early-payment discount</b>
+        {%- if terms.discount_amount is not none %} ({{ terms.discount_amount | money(cur) }}){% endif %}
+        {% if open %}if paid by {{ terms.discount_by | date }}.{% else %}missed: it ended {{ terms.discount_by | date }}.{% endif %}
+      </p>
+      {% endif %}
+
+      {% if invoice.payments %}
+      <div class="table-wrap">
+        <table class="ledger ledger--compact payments">
+          <caption class="sr-only">Payments recorded</caption>
+          <thead><tr><th scope="col">Paid on</th><th scope="col">How</th><th scope="col" class="num">Amount</th><th scope="col">Recorded by</th></tr></thead>
+          <tbody>
+            {% for p in invoice.payments %}
+            <tr><td>{{ p.paid_on | date }}</td>
+              <td>{{ PAYMENT_METHODS.get(p.method, p.method) }}{% if p.reference %} <span class="typed small">{{ p.reference }}</span>{% endif %}</td>
+              <td class="num">{{ p.amount | money }}{% if p.discount_taken %}<span class="sub">+ {{ p.discount_taken | money }} discount</span>{% endif %}</td>
+              <td class="muted">{{ p.recorded_by }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if payable and balance.balance %}
+        {% if invoice.hold_kind %}
+        <p class="muted small">Payment is blocked while the invoice is {{ "disputed" if invoice.hold_kind == "dispute" else "on hold" }}.</p>
+        {% else %}
+        {% set f = form if form.get('_form') == 'payment' else {} %}
+        <details class="action" {% if f %}open{% endif %}>
+          <summary>Record a payment</summary>
+          <form method="post" action="/invoices/{{ invoice.id }}/payment" class="action__form" data-payment>
+            <input type="hidden" name="_form" value="payment">
+            <div class="field-row">
+              <div class="field"><label for="paid-on">Paid on</label>
+                <input id="paid-on" name="paid_on" type="date" value="{{ f.get('paid_on', today.isoformat()) }}" max="{{ today.isoformat() }}" required></div>
+              <div class="field"><label for="pay-amount">Amount paid <span class="muted">{{ cur }}</span></label>
+                <input id="pay-amount" name="amount" type="text" inputmode="decimal" value="{{ f.get('amount', '%.2f' | format(plan.amount)) }}" required></div>
+            </div>
+            {% if plan.discount %}
+            <div class="field field--check"><label><input name="take_discount" type="checkbox" value="1" {% if not f or f.get('take_discount') %}checked{% endif %} data-discount="{{ '%.2f' | format(plan.discount) }}" data-full="{{ '%.2f' | format(balance.balance) }}">
+              Keep the {{ plan.discount | money(cur) }} early-payment discount (paying by {{ terms.discount_by | date }})</label></div>
+            {% endif %}
+            <div class="field-row">
+              <div class="field"><label for="pay-method">How</label>
+                <select id="pay-method" name="method">
+                  {% for key, label in PAYMENT_METHODS.items() %}<option value="{{ key }}" {% if f.get('method') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select></div>
+              <div class="field"><label for="pay-ref">Reference <span class="muted">check or transfer number</span></label>
+                <input id="pay-ref" name="reference" type="text" maxlength="100" value="{{ f.get('reference', '') }}"></div>
+            </div>
+            {{ person_field(reviewer, "person-payment") }}
+            <button class="button button--primary" type="submit">Record payment</button>
+            <p class="muted small">Record a payment once your bank has sent it. The money itself moves in your bank or accounting system.</p>
+          </form>
+        </details>
+        {% endif %}
+      {% endif %}
+    </details>
+    {% endif %}
+
+
+    <details class="invoice-disclosure" {% if form.get('_form') == 'comment' %}open{% endif %}>
+      <summary id="history-title">Comments and history</summary>
       {% set f = form if form.get('_form') == 'comment' else {} %}
       <form method="post" action="/invoices/{{ invoice.id }}/comment" class="comment-form">
         <input type="hidden" name="_form" value="comment">
@@ -372,9 +450,8 @@
         </li>
         {% endfor %}
       </ol>
-    </section>
+    </details>
 
-  </div>
-</div>
+
 <script src="{{ url_for('static', path='steps.js') }}?v={{ asset_version }}" defer></script>
 {% endblock %}
