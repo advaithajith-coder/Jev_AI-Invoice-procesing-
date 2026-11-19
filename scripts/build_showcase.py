@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "src" / "jev_invoice" / "web" / "static"
 OUT = ROOT / "showcase"
-REPO_URL = "https://github.com/advaithajith-coder/Jev_AI-Invoice-procesing-"
+REPO_URL = "https://github.com/advaithajith-coder/parser-ai"
 
 MARK = (
     '<path class="mark-frame" d="M18 84V29c0-9 7-16 16-16h24c18 0 30 12 30 29S76 70 58 70H39v14z"/>'

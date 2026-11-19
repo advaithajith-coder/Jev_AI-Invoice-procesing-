@@ -5,6 +5,8 @@ against your vendors, purchase orders and deliveries, asks [TypeSafe Jev](https:
 the judgment questions that rules cannot answer, and decides what happens next, with every
 reason written down.
 
+**[▶ Live demo](https://jevai-invoice-procesing-showcase.vercel.app/)**: watch invoices move through every check, in your browser.
+
 ![How an invoice moves through Parser.AI: invoice in, local OCR for scans, AI extraction, checks (company policy, delivery status, tax rules, credit memo, fraud detection, duplicates and dates), Jev judgment, decision; fraud is blocked, exceptions go to review, approved invoices reach the payables dashboard and early-pay discount alerts, then export to QuickBooks &amp; Xero (or CSV)](docs/images/parser-flow.png)
 
 > A portfolio project with a fictional company, **Northwind Analytics Inc** (Massachusetts,
@@ -211,9 +213,7 @@ in-memory transport, so request and response formats are exercised without netwo
 
 ## The live map on its own
 
-**Live: <https://jevai-invoice-procesing-showcase.vercel.app/>**
-
-[`showcase/`](showcase) is a static copy of the live map that needs no backend, for hosting
+[`showcase/`](showcase) is a static copy of the live map (the [live demo](https://jevai-invoice-procesing-showcase.vercel.app/)) that needs no backend, for hosting
 on its own (for example as a portfolio page). The slips move in the visitor's browser using a
 snapshot of the demo figures; links into the rest of the app are removed.
 
