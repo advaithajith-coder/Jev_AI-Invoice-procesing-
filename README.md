@@ -251,3 +251,7 @@ docs/           decisions (ADRs), detailed behaviour, images
 scripts/        build_showcase.py: the static live map in showcase/
 showcase/       the live map as a static page (generated)
 ```
+
+## License
+
+[MIT](LICENSE)
