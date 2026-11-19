@@ -2,8 +2,8 @@
 
 **AI-powered accounts payable for supplier invoices.** Parser.AI reads each invoice, checks it
 against your vendors, purchase orders and deliveries, asks [TypeSafe Jev](https://typesafe.ai)
-the judgment questions that rules cannot answer, and decides what happens next, with every
-reason written down.
+the judgment questions that rules cannot answer, and a versioned decision engine decides
+what happens next, with every reason written down.
 
 **[▶ Live demo](https://jevai-invoice-procesing-showcase.vercel.app/)**: watch invoices move through every check, in your browser.
 
